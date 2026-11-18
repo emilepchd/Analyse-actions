@@ -56,6 +56,7 @@ const memo = new Map();
 async function api(path, { force = false } = {}) {
   if (!force && memo.has(path)) return memo.get(path);
   const p = fetch(path).then(async (r) => {
+    if (r.status === 401) { location.href = "/login"; throw new Error("Connexion requise"); }
     if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch {} throw new Error(m); }
     return r.json();
   });
@@ -1330,5 +1331,8 @@ function renderTvSettings() {
     }
   } catch {}
 })();
+
+// en ligne avec mot de passe : lien « Se déconnecter »
+api("/api/health").then((h) => { if (h.password) document.getElementById("logout-link").hidden = false; }).catch(() => {});
 
 route();

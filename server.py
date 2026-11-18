@@ -11,7 +11,11 @@ Lancement : python server.py  (ou double-clic sur lancer.bat sous Windows)
 """
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import hmac
 import logging
+import mimetypes
 import os
 import threading
 import time
@@ -21,29 +25,109 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import yfinance as yf
-from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from urllib.parse import parse_qs
+
+from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 import analysis as an
 import fmp
 
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 log = logging.getLogger("analyse")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", "8765"))
+HOST = os.environ.get("HOST", "127.0.0.1")
+# mode en ligne (hebergeur) : mot de passe obligatoire, pas de navigateur a ouvrir
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+ONLINE = HOST not in ("127.0.0.1", "localhost") or bool(os.environ.get("RENDER"))
+
 
 @asynccontextmanager
 async def lifespan(_app):
     url = f"http://127.0.0.1:{PORT}"
-    print(f"\n  Analyse Actions est prete : {url}\n  (fermer cette fenetre pour arreter)\n", flush=True)
-    if not os.environ.get("NO_BROWSER"):
-        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+    if ONLINE:
+        print(f"  Analyse Actions en ligne sur le port {PORT} (mot de passe {'actif' if APP_PASSWORD else 'ABSENT'})", flush=True)
+    else:
+        print(f"\n  Analyse Actions est prete : {url}\n  (fermer cette fenetre pour arreter)\n", flush=True)
+        if not os.environ.get("NO_BROWSER"):
+            threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     yield
 
 
 app = FastAPI(title="Analyse Actions", lifespan=lifespan)
+
+# ---------------------------------------------------------------- mot de passe (mode en ligne)
+COOKIE = "aa_auth"
+PUBLIC = ("/login", "/api/health", "/static/manifest.webmanifest", "/static/icon-192.png", "/static/icon-512.png",
+          "/static/apple-touch-icon.png", "/static/favicon.png", "/favicon.ico")
+
+
+def _token() -> str:
+    return hmac.new(("aa-v1:" + APP_PASSWORD).encode(), b"analyse-actions", hashlib.sha256).hexdigest()
+
+
+def _authed(request: Request) -> bool:
+    return hmac.compare_digest(request.cookies.get(COOKIE, ""), _token())
+
+
+@app.middleware("http")
+async def auth_gate(request: Request, call_next):
+    path = request.url.path
+    if ONLINE and not APP_PASSWORD and path not in PUBLIC:
+        return HTMLResponse("<h3>Analyse Actions</h3><p>Définis la variable APP_PASSWORD chez l'hébergeur pour protéger l'accès.</p>", 503)
+    if APP_PASSWORD and path not in PUBLIC and not _authed(request):
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "Connexion requise"}, 401)
+        return RedirectResponse("/login", 303)
+    resp = await call_next(request)
+    if ONLINE:
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Referrer-Policy"] = "same-origin"
+    return resp
+
+
+LOGIN_HTML = """<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Analyse Actions</title><link rel="icon" href="/static/favicon.png"><link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="manifest" href="/static/manifest.webmanifest"><meta name="theme-color" content="#1e4155">
+<style>:root{--bg:#eef2f5;--card:#fff;--ink:#15232d;--muted:#61717d;--line:#dfe6eb}
+@media (prefers-color-scheme:dark){:root{--bg:#0f171d;--card:#17222a;--ink:#e4ecf1;--muted:#93a4b0;--line:#26343e}}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px}
+form{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px;width:100%;max-width:360px;text-align:center}
+img{width:64px;height:64px;border-radius:14px}h1{font-size:20px;margin:10px 0 4px}p{color:var(--muted);margin:0 0 18px;font-size:13px}
+input{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:16px}
+button{margin-top:12px;width:100%;padding:12px;border:0;border-radius:10px;background:#2c5a73;color:#fff;font-weight:700;font-size:15px;cursor:pointer}
+.err{color:#d14b4b;margin-top:10px;font-size:13px}</style></head><body>
+<form method="post" action="/login"><img src="/static/icon-192.png" alt=""><h1>Analyse Actions</h1><p>Accès protégé</p>
+<input type="password" name="password" placeholder="Mot de passe" autocomplete="current-password" autofocus required>
+<button type="submit">Entrer</button>__ERR__</form></body></html>"""
+
+
+@app.get("/login")
+def login_page():
+    return HTMLResponse(LOGIN_HTML.replace("__ERR__", ""))
+
+
+@app.post("/login")
+async def login(request: Request):
+    form = parse_qs((await request.body()).decode("utf-8", "replace"))
+    pwd = (form.get("password") or [""])[0]
+    if APP_PASSWORD and hmac.compare_digest(pwd.encode(), APP_PASSWORD.encode()):
+        resp = RedirectResponse("/", 303)
+        resp.set_cookie(COOKIE, _token(), max_age=180 * 86400, httponly=True, secure=ONLINE, samesite="lax")
+        return resp
+    await asyncio.sleep(1.5)  # freine les essais en serie
+    return HTMLResponse(LOGIN_HTML.replace("__ERR__", '<div class="err">Mot de passe incorrect.</div>'), 401)
+
+
+@app.get("/logout")
+def logout():
+    resp = RedirectResponse("/login", 303)
+    resp.delete_cookie(COOKIE)
+    return resp
 POOL = ThreadPoolExecutor(max_workers=12)
 
 # ---------------------------------------------------------------- cache
@@ -60,6 +144,9 @@ def cached(key: str, ttl: float, fn):
     val = fn()
     with _lock:
         _cache[key] = (time.time(), val)
+        if len(_cache) > 300:  # memoire limitee chez l'hebergeur gratuit : on oublie les plus anciennes
+            for k, _v in sorted(_cache.items(), key=lambda kv: kv[1][0])[:60]:
+                _cache.pop(k, None)
     return val
 
 
@@ -187,9 +274,21 @@ def settings_fmp(payload: dict = Body(...)):
     return ok({"ok": True, "message": res["message"], "fmp": fmp.status()})
 
 
+def _yahoo_check():
+    try:
+        px = yf.Ticker("MC.PA").fast_info["lastPrice"]
+        return {"ok": bool(px), "symbol": "MC.PA", "price": float(px) if px else None}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 @app.get("/api/health")
-def health():
-    return ok({"ok": True, "time": datetime.now(timezone.utc).isoformat(), "yfinance": yf.__version__})
+def health(yahoo: int = 0):
+    out = {"ok": True, "time": datetime.now(timezone.utc).isoformat(), "yfinance": yf.__version__,
+           "online": ONLINE, "password": bool(APP_PASSWORD)}
+    if yahoo:  # diagnostic : Yahoo repond-il depuis cette machine ?
+        out["yahoo"] = cached("yahoo-check", 300, _yahoo_check)
+    return ok(out)
 
 
 app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
@@ -200,8 +299,27 @@ def index():
     return FileResponse(os.path.join(BASE, "static", "index.html"))
 
 
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse(os.path.join(BASE, "static", "favicon.png"))
+
+
+def _already_running() -> bool:
+    """Vrai si l'application tourne deja sur ce PC (double-clic sur le raccourci alors qu'elle est ouverte)."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/health", timeout=1.5) as r:
+            return r.status == 200 and b"yfinance" in r.read()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 if __name__ == "__main__":
     import uvicorn
 
+    if not ONLINE and _already_running():
+        print("\n  Analyse Actions est deja ouverte : ouverture du navigateur.", flush=True)
+        webbrowser.open(f"http://127.0.0.1:{PORT}")
+        raise SystemExit(0)
     print("\n  Demarrage d'Analyse Actions...", flush=True)
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
+    uvicorn.run(app, host=HOST, port=PORT, log_level="warning", proxy_headers=True, forwarded_allow_ips="*")

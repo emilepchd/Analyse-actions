@@ -11,6 +11,28 @@ Application locale d'analyse d'actions : tu tapes le nom ou le symbole d'une act
 
 Sous macOS / Linux : `./lancer.sh`.
 
+## Raccourci sur le Bureau et dans le menu Démarrer
+
+Double-clique **une seule fois** sur **`creer_raccourcis.bat`** : il crée le raccourci « Analyse Actions » (avec son icône) sur le Bureau et dans le menu Démarrer. Pour l'épingler : clic droit sur le raccourci, puis « Épingler à l'écran de démarrage » ou « à la barre des tâches ».
+
+À chaque lancement, l'application :
+- se met à jour depuis GitHub (si Git est installé) ;
+- met à jour ses dépendances une fois par jour au plus ;
+- si elle est déjà ouverte, ouvre simplement le navigateur dessus.
+
+## Accès depuis le téléphone (hébergement gratuit, sans nom de domaine)
+
+Le fichier `render.yaml` permet d'héberger l'application gratuitement sur [Render](https://render.com), avec une adresse du type `https://analyse-actions.onrender.com`, protégée par un mot de passe et mise à jour automatiquement à chaque modification sur GitHub.
+
+1. Sur https://render.com, clique « Get Started » et connecte-toi avec ton compte GitHub (gratuit, sans carte bancaire).
+2. Dans le tableau de bord : « New » puis « Blueprint ». Autorise Render à accéder au dépôt `Analyse-actions` et sélectionne-le.
+3. Render lit `render.yaml` et demande deux valeurs : `APP_PASSWORD` (le mot de passe de ton choix pour entrer sur le site) et `FMP_API_KEY` (ta clé FMP gratuite, facultatif). Valide avec « Apply » / « Deploy ».
+4. Après quelques minutes, l'adresse du site s'affiche en haut de la page du service. Ouvre-la sur ton téléphone, entre le mot de passe, puis « Ajouter à l'écran d'accueil » (Safari : bouton Partager ; Chrome : menu ⋮).
+
+La clé FMP et le mot de passe restent secrets côté Render : ils ne sont ni dans le code ni sur GitHub.
+
+Limites de l'offre gratuite : le site se met en veille après 15 minutes sans visite et met environ une minute à se réveiller ; les listes, notes et portefeuille sont enregistrés dans le navigateur de chaque appareil (la liste de `suivi.txt` est ajoutée partout) ; Yahoo Finance peut limiter les requêtes venant des serveurs d'hébergeurs (diagnostic : `/api/health?yahoo=1`).
+
 ## Ce que contient chaque fiche action
 
 | Section | Contenu |

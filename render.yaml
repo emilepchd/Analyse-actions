@@ -1,0 +1,23 @@
+# Hebergement gratuit sur Render (https://render.com) : New > Blueprint > ce depot.
+# Le site se met a jour tout seul a chaque modification poussee sur GitHub (branche main).
+services:
+  - type: web
+    name: analyse-actions
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: NO_BROWSER
+        value: "1"
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: APP_PASSWORD   # mot de passe d'acces au site, demande a la creation
+        sync: false
+      - key: FMP_API_KEY    # cle Financial Modeling Prep gratuite (facultatif), reste secrete cote serveur
+        sync: false
