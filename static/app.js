@@ -1173,8 +1173,8 @@ async function renderFmp(d, force = false) {
 
   const cur = d.profile.financialCurrency || d.profile.currency, px = d.profile.price;
   const segP = f.segments?.product || [], segG = f.segments?.geo || [];
-  const yearNow = new Date().getFullYear();
-  const est = (f.estimates || []).filter((e) => +e.year >= yearNow);
+  const today = new Date().toISOString().slice(0, 10);
+  const est = (f.estimates || []).filter((e) => e.date >= today); // exercices pas encore clos
   let cagr = null;
   if (est.length >= 2 && est[0].eps > 0 && est[est.length - 1].eps > 0) cagr = Math.pow(est[est.length - 1].eps / est[0].eps, 1 / (est.length - 1)) - 1;
   const sc = f.scores || {}, rt = f.rating || {}, dcf = f.dcf || {}, tg = f.targets || {};
