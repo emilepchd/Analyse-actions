@@ -2,17 +2,17 @@
 chcp 65001 >nul
 title Analyse Actions
 cd /d "%~dp0"
-
-rem L'environnement Python est installe hors du dossier (evite la synchronisation OneDrive)
-set "VENV=%LOCALAPPDATA%\AnalyseActions\venv"
-
-rem 1. Mise a jour automatique de l'application depuis GitHub
+rem Mise a jour automatique depuis GitHub (ce fichier peut lui-meme etre mis a jour pendant qu'il tourne)
 where git >nul 2>&1
 if not errorlevel 1 if exist ".git" (
   echo Recherche de mises a jour...
   git pull --ff-only -q >nul 2>&1
   if errorlevel 1 ( echo Mise a jour impossible pour l'instant, lancement de la version actuelle. ) else ( echo Application a jour. )
 )
+rem ==== NE RIEN MODIFIER AU-DESSUS DE CETTE LIGNE : Windows reprend la lecture du fichier a cet endroit apres la mise a jour ====
+
+rem L'environnement Python est installe hors du dossier (evite la synchronisation OneDrive)
+set "VENV=%LOCALAPPDATA%\AnalyseActions\venv"
 
 rem 2. Python
 set "PY="
