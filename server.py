@@ -282,12 +282,34 @@ def _yahoo_check():
         return {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def _yahoo_deep_check():
+    """Teste chaque type de donnee Yahoo utilise par la fiche (profil, historique, estimations, options)."""
+    out = {}
+    t = yf.Ticker("AAPL")
+    tests = {
+        "profil": lambda: bool((t.info or {}).get("longName")),
+        "historique": lambda: len(t.history(period="1y")) > 100,
+        "estimations": lambda: t.earnings_estimate is not None and len(t.earnings_estimate) > 0,
+        "analystes": lambda: t.recommendations is not None and len(t.recommendations) > 0,
+        "options": lambda: len(t.options or ()) > 0,
+        "europe": lambda: bool((yf.Ticker("AI.PA").info or {}).get("longName")),
+    }
+    for name, fn in tests.items():
+        try:
+            out[name] = "ok" if fn() else "vide"
+        except Exception as e:  # noqa: BLE001
+            out[name] = "erreur : " + type(e).__name__ + " " + str(e)[:120]
+    return out
+
+
 @app.get("/api/health")
 def health(yahoo: int = 0):
     out = {"ok": True, "time": datetime.now(timezone.utc).isoformat(), "yfinance": yf.__version__,
            "online": ONLINE, "password": bool(APP_PASSWORD)}
     if yahoo:  # diagnostic : Yahoo repond-il depuis cette machine ?
         out["yahoo"] = cached("yahoo-check", 300, _yahoo_check)
+    if yahoo >= 2:
+        out["yahooDetail"] = cached("yahoo-deep", 600, _yahoo_deep_check)
     return ok(out)
 
 
