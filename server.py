@@ -135,15 +135,19 @@ _cache: dict[str, tuple[float, object]] = {}
 _lock = threading.Lock()
 
 
-def cached(key: str, ttl: float, fn):
+def cached(key: str, ttl: float, fn, short=None, short_ttl: float = 120):
+    """Memoire temporaire. short(val) vrai = resultat incomplet, garde seulement short_ttl secondes."""
     now = time.time()
     with _lock:
         hit = _cache.get(key)
         if hit and now - hit[0] < ttl:
             return hit[1]
     val = fn()
+    stamp = time.time()
+    if short and short(val):
+        stamp -= max(0, ttl - short_ttl)
     with _lock:
-        _cache[key] = (time.time(), val)
+        _cache[key] = (stamp, val)
         if len(_cache) > 300:  # memoire limitee chez l'hebergeur gratuit : on oublie les plus anciennes
             for k, _v in sorted(_cache.items(), key=lambda kv: kv[1][0])[:60]:
                 _cache.pop(k, None)
@@ -190,17 +194,23 @@ def stock(symbol: str, refresh: int = 0):
     if refresh:
         _cache.pop(key, None)
     try:
-        data = cached(key, 20 * 60, lambda: an.full_analysis(symbol, POOL))
+        data = _analysis(symbol)
     except an.NotFound as e:
         raise HTTPException(404, str(e)) from e
     return ok(data)
+
+
+def _analysis(symbol: str):
+    # Fiche incomplete (Yahoo a refuse le profil) : on la garde 2 minutes seulement pour reessayer vite.
+    return cached(f"stock:{symbol}", 20 * 60, lambda: an.full_analysis(symbol, POOL),
+                  short=lambda d: d["profile"].get("partial"))
 
 
 @app.get("/api/summary/{symbol}")
 def summary(symbol: str):
     symbol = symbol.upper().strip()
     try:
-        data = cached(f"stock:{symbol}", 20 * 60, lambda: an.full_analysis(symbol, POOL))
+        data = _analysis(symbol)
     except an.NotFound as e:
         raise HTTPException(404, str(e)) from e
     return ok(an.summary_of(data))
@@ -294,11 +304,28 @@ def _yahoo_deep_check():
         "options": lambda: len(t.options or ()) > 0,
         "europe": lambda: bool((yf.Ticker("AI.PA").info or {}).get("longName")),
     }
-    for name, fn in tests.items():
-        try:
-            out[name] = "ok" if fn() else "vide"
-        except Exception as e:  # noqa: BLE001
-            out[name] = "erreur : " + type(e).__name__ + " " + str(e)[:120]
+    msgs: list[str] = []
+
+    class _Grab(logging.Handler):
+        def emit(self, record):
+            m = record.getMessage()[:200]
+            if m not in msgs and len(msgs) < 6:
+                msgs.append(m)
+
+    grab = _Grab(level=logging.WARNING)
+    ylog = logging.getLogger("yfinance")
+    ylog.addHandler(grab)
+    try:
+        for name, fn in tests.items():
+            try:
+                out[name] = "ok" if fn() else "vide"
+            except Exception as e:  # noqa: BLE001
+                out[name] = "erreur : " + type(e).__name__ + " " + str(e)[:120]
+    finally:
+        ylog.removeHandler(grab)
+    out["nom"] = an.company_name("MC.PA", {}, an._history_meta(yf.Ticker("MC.PA")))
+    if msgs:
+        out["messages"] = msgs
     return out
 
 

@@ -237,6 +237,50 @@ def price_history(t: yf.Ticker):
     return {"dates": idx, "close": close, "adj": adj, "dividends": divs, "splits": splits}
 
 
+
+# ============================================================ nom de la societe
+_NAMES: dict[str, str] = {}  # memoire des noms deja trouves (ils ne changent pas)
+
+
+def _history_meta(t: yf.Ticker) -> dict:
+    """Infos renvoyees avec les cours (nom, devise, place). Cette source repond meme quand Yahoo refuse le reste."""
+    try:
+        m = t.get_history_metadata()
+        return {k: m.get(k) for k in ("longName", "shortName", "currency", "fullExchangeName", "exchangeName",
+                                      "instrumentType", "regularMarketPrice")}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _search_name(symbol: str) -> str | None:
+    try:
+        for q in yf.Search(symbol, max_results=8, news_count=0).quotes or []:
+            if (q.get("symbol") or "").upper() == symbol.upper():
+                return q.get("longname") or q.get("shortname")
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def company_name(symbol: str, info: dict | None = None, meta: dict | None = None) -> str:
+    """Nom complet de la societe : profil Yahoo, sinon donnees des cours, sinon recherche Yahoo, sinon le symbole."""
+    info, meta = info or {}, meta or {}
+    for cand in (info.get("longName"), meta.get("longName"), _NAMES.get(symbol), info.get("shortName"), meta.get("shortName")):
+        if cand and str(cand).strip() and str(cand).strip().upper() != symbol.upper():
+            _NAMES[symbol] = str(cand).strip()
+            return _NAMES[symbol]
+    found = _search_name(symbol)
+    if found:
+        _NAMES[symbol] = found.strip()
+        return _NAMES[symbol]
+    return symbol
+
+
+def info_complete(info: dict) -> bool:
+    """Faux quand Yahoo n'a renvoye qu'un profil vide (limitation temporaire du serveur)."""
+    return bool(info) and len(info) > 8 and bool(info.get("quoteType"))
+
+
 # ============================================================ sub-fetchers
 def now_naive() -> pd.Timestamp:
     return pd.Timestamp.now(tz="UTC").tz_localize(None)
@@ -683,7 +727,18 @@ def derived_ratios(annual: dict):
 def full_analysis(symbol: str, pool: ThreadPoolExecutor):
     t = yf.Ticker(symbol)
     info = safe(lambda: t.info, {}, "info") or {}
+    if not info_complete(info):  # Yahoo refuse parfois une premiere fois : on retente une fois
+        info = safe(lambda: yf.Ticker(symbol).info, {}, "info") or info
     hist = safe(lambda: price_history(t), None, "history")
+    meta = _history_meta(t) if hist and hist["close"] else {}
+    partial = not info_complete(info)
+    if partial:
+        log.warning("%s : profil Yahoo incomplet (%d champs), donnees detaillees indisponibles pour l'instant", symbol, len(info))
+        for k_info, k_meta in (("currency", "currency"), ("fullExchangeName", "fullExchangeName"), ("regularMarketPrice", "regularMarketPrice")):
+            if not info.get(k_info) and meta.get(k_meta):
+                info[k_info] = meta[k_meta]
+        if not info.get("quoteType") and meta.get("instrumentType"):
+            info["quoteType"] = meta["instrumentType"]
     if (not hist or not hist["close"]) and not info.get("regularMarketPrice") and not info.get("currentPrice"):
         raise NotFound(f"Aucune donnée trouvée pour « {symbol} ». Vérifie le symbole (ex : AAPL, MC.PA, AIR.PA, ASML.AS) ou utilise la barre de recherche.")
     hist = hist or {"dates": [], "close": [], "adj": [], "dividends": [], "splits": []}
@@ -741,8 +796,9 @@ def full_analysis(symbol: str, pool: ThreadPoolExecutor):
     country = info.get("country")
     profile = {
         "symbol": symbol,
-        "name": info.get("longName") or info.get("shortName") or symbol,
-        "shortName": info.get("shortName"),
+        "name": company_name(symbol, info, meta),
+        "shortName": info.get("shortName") or meta.get("shortName"),
+        "partial": partial,
         "type": qtype,
         "exchange": info.get("fullExchangeName") or info.get("exchange"),
         "currency": currency,
@@ -774,7 +830,7 @@ def full_analysis(symbol: str, pool: ThreadPoolExecutor):
         "lastFiscalYearEnd": ts(info.get("lastFiscalYearEnd")),
         "nextFiscalYearEnd": ts(info.get("nextFiscalYearEnd")),
         "marketState": info.get("marketState"),
-        "tradingview": tv_symbol(symbol, info.get("exchange")),
+        "tradingview": tv_symbol(symbol, info.get("exchange") or meta.get("exchangeName")),
         "updated": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -1168,7 +1224,7 @@ def summary_of(a: dict):
     elif isinstance(ed, str):
         nxt = ed
     return {
-        "symbol": p["symbol"], "name": p["name"], "currency": p["currency"], "price": p["price"], "change": p["change"],
+        "symbol": p["symbol"], "name": p["name"], "partial": p.get("partial", False), "currency": p["currency"], "price": p["price"], "change": p["change"],
         "sector": p["sector"], "country": p["country"], "capCategory": p["capCategory"], "marketCap": p["marketCap"],
         "peaEligible": p["peaEligible"], "website": p["website"],
         "growth": ind["growth"]["value"], "risk": ind["risk"]["value"], "riskLabel": ind["risk"]["label"],

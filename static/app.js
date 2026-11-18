@@ -13,6 +13,23 @@ const noteOf = (s) => notes()[s] || {};
 const setNote = (s, n) => { const all = notes(); all[s] = { ...(all[s] || {}), ...n, updated: new Date().toISOString() }; store.set("notes", all); };
 const portfolio = () => store.get("portfolio", []);
 const setPortfolio = (p) => store.set("portfolio", p);
+// Noms des sociétés déjà rencontrés, pour afficher « LVMH » plutôt que « MC.PA » partout
+const knownNames = () => store.get("names", {});
+const rememberName = (sym, name) => {
+  if (!sym || !name || name.toUpperCase() === String(sym).toUpperCase()) return;
+  const all = knownNames(); if (all[sym] === name) return;
+  all[sym] = name; store.set("names", all);
+};
+const fullName = (sym, name) => (name && name.toUpperCase() !== String(sym).toUpperCase() ? name : knownNames()[sym] || sym);
+// Version courte pour les légendes et tableaux : sans forme juridique (SE, S.A., Inc., plc…)
+const LEGAL = /[\s,]+(soci[ée]t[ée] europ[ée]enne|soci[ée]t[ée] anonyme|s\.?\s?a\.?|s\.?e\.?|se|sa|inc\.?|incorporated|corp\.?|corporation|co\.?|company|plc|p\.l\.c\.|n\.?v\.?|ag|a\/s|as|asa|ab|\(publ\)|oyj|spa|s\.p\.a\.|ltd\.?|limited|gmbh|kgaa|& co\.?|class [a-c])\s*$/i;
+const shortName = (sym, name) => {
+  let n = fullName(sym, name);
+  if (n === sym) return n;
+  for (let i = 0; i < 4; i++) { const m = n.replace(LEGAL, "").trim(); if (m === n || m.length < 2) break; n = m; }
+  n = n.replace(/\s+-\s+/g, " ").replace(/[,\s]+$/, "");
+  return n.length > 32 ? n.slice(0, 30).trim() + "…" : n;
+};
 const pushRecent = (s) => { const r = store.get("recent", []).filter((x) => x !== s); r.unshift(s); store.set("recent", r.slice(0, 12)); };
 
 // ================================================================= theme
@@ -217,13 +234,14 @@ async function pageHome() {
 async function renderWatchCards(el) {
   const wl = watchlist();
   if (!wl.length) { el.innerHTML = `<div class="card empty" style="grid-column:1/-1">Ta liste est vide. Recherche une action et clique sur ☆ Suivre.</div>`; return; }
-  el.innerHTML = wl.map((s) => `<div class="card mkt" style="cursor:pointer" data-s="${esc(s)}" onclick="location.hash='#/action/${encodeURIComponent(s)}'"><div class="top"><span class="nm">${esc(s)}</span></div><div class="muted">chargement…</div></div>`).join("");
+  el.innerHTML = wl.map((s) => `<div class="card mkt" style="cursor:pointer" data-s="${esc(s)}" onclick="location.hash='#/action/${encodeURIComponent(s)}'"><div class="top"><span class="nm">${esc(shortName(s))}</span></div><div class="muted">chargement…</div></div>`).join("");
   pool(wl, 3, async (s) => {
     const r = await api("/api/summary/" + encodeURIComponent(s));
     const card = el.querySelector(`[data-s="${CSS.escape(s)}"]`);
     if (!card) return;
+    rememberName(s, r.name);
     const sc = totalScore(r.scores, s), [lab, col] = scoreLabel(sc);
-    card.innerHTML = `<div class="top"><span class="nm">${esc(r.name)}</span><span class="badge ${col}">${isNum(sc) ? Math.round(sc) : "–"}/100</span></div>
+    card.innerHTML = `<div class="top"><span class="nm" title="${esc(fullName(s, r.name))} (${esc(s)})">${esc(shortName(s, r.name))}</span><span class="badge ${col}">${isNum(sc) ? Math.round(sc) : "–"}/100</span></div>
       <div class="last">${money(r.price, r.currency)} <span class="pill ${cls(r.change)}">${pct(r.change, 2, true)}</span></div>
       <div class="row"><span>Croiss. <b>${pct(r.growth, 1, true)}</b></span><span>Risque <b>${pct(r.risk, 0)}</b></span><span>${isNum(r.discount) ? (r.discount < 0 ? "Décote" : "Surcote") : "PE"} <b class="${isNum(r.discount) ? (r.discount < 0 ? "up" : "down") : ""}">${isNum(r.discount) ? pct(Math.abs(r.discount), 0) : mult(r.peNtm)}</b></span></div>`;
   });
@@ -234,9 +252,11 @@ const RANGES = [["5J", 7], ["1M", 31], ["6M", 183], ["YTD", "ytd"], ["1A", 365],
 const BENCH = [["^GSPC", "S&P 500"], ["^FCHI", "CAC 40"], ["^STOXX", "STOXX 600"], ["URTH", "MSCI World"], ["^NDX", "Nasdaq 100"]];
 
 async function pageStock(sym, force = false) {
-  loading(`Analyse de ${sym} en cours… (récupération de toutes les données disponibles, 10 à 30 s la première fois)`);
+  loading(`Analyse de ${fullName(sym)} en cours… (récupération de toutes les données disponibles, 10 à 30 s la première fois)`);
   const d = await api("/api/stock/" + encodeURIComponent(sym) + (force ? "?refresh=1" : ""), { force });
   const p = d.profile, cur = p.currency, S = p.symbol;
+  rememberName(S, p.name);
+  p.name = fullName(S, p.name);
   pushRecent(S);
   document.title = `${p.name} (${S}) · Analyse Actions`;
   const inWl = watchlist().includes(S);
@@ -249,6 +269,7 @@ async function pageStock(sym, force = false) {
   const isEq = p.type === "EQUITY";
 
   app.innerHTML = `
+  ${p.partial ? `<div class="warn-box">Yahoo ne transmet pour l'instant que les cours à ce serveur : profil, résultats, analystes et valorisation sont momentanément incomplets. Réessaie dans quelques minutes avec <b>↻ Actualiser</b>.</div>` : ""}
   <div class="grid g-side">
     <div class="card idcard">
       <div class="logo">${logo}</div>
@@ -279,7 +300,7 @@ async function pageStock(sym, force = false) {
     </div>
     <div class="card">
       <div class="hero">
-        <div><div style="font-weight:700">${esc(p.name)}</div><div class="big">${money(p.price, cur)} <span class="pill ${cls(p.change)}" id="range-perf"></span></div></div>
+        <div><div class="co-name">${esc(p.name)} <small>${esc(S)}</small></div><div class="big">${money(p.price, cur)} <span class="pill ${cls(p.change)}" id="range-perf"></span></div></div>
         <div class="seg" id="ranges">${RANGES.map(([l]) => `<button data-r="${l}" class="${l === "20A" ? "on" : ""}">${l}</button>`).join("")}</div>
       </div>
       <div class="toggles" id="toggles">
@@ -454,11 +475,12 @@ function renderPriceChart(d) {
     const perf = series[T.length - 1] / series[i0] - 1;
     const rp = document.getElementById("range-perf"); rp.textContent = pct(perf, 1, true) + " (" + st.range + ")"; rp.className = "pill " + cls(perf);
 
-    const ser = [{ name: p.symbol, type: "line", data, showSymbol: false, sampling: "lttb", lineStyle: { width: 1.6, color: css("--c1") },
+    const ser = [{ name: shortName(p.symbol, p.name), type: "line", data, showSymbol: false, sampling: "lttb", lineStyle: { width: 1.6, color: css("--c1") },
       areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: css("--c1") + "55" }, { offset: 1, color: css("--c1") + "05" }]) }, z: 3, markLine: { symbol: "none", silent: false, data: [] } }];
     const ml = ser[0].markLine.data;
     // régression log-linéaire
     const tt = document.getElementById("trend-txt");
+    document.getElementById("trend-win").style.display = st.t.reg ? "" : "none";
     if (st.t.reg) {
       const wy = st.win === "max" ? 1e9 : +st.win;
       const ws = lastT - wy * 365.25 * 864e5;
@@ -470,13 +492,14 @@ function renderPriceChart(d) {
         const yrs = xs[xs.length - 1];
         const resid = ys[ys.length - 1] - (a + b * xs[xs.length - 1]);
         tt.innerHTML = `Tendance <b class="${cls(b)}">${pct(Math.exp(b) - 1, 1, true)}/an</b> sur ${nf(0).format(yrs)} ans · cours actuel <b>${pct(Math.exp(resid) - 1, 1, true)}</b> ${resid >= 0 ? "au-dessus" : "en dessous"} de la tendance (${resid >= 0 ? "+" : ""}${nf(1).format(resid / sd)} σ)`;
-        const mk = (k, name, dash, col) => {
+        const mk = (k, dash, col) => {
           const pts = [];
           for (let i = Math.max(j0, i0); i < T.length; i += Math.max(1, Math.floor((T.length - Math.max(j0, i0)) / 200))) pts.push([T[i], Math.exp(a + b * (T[i] - T[j0]) / (365.25 * 864e5) + k * sd)]);
           pts.push([lastT, Math.exp(a + b * yrs + k * sd)]);
-          return { name, type: "line", data: pts, showSymbol: false, silent: true, lineStyle: { width: k ? 1 : 1.4, type: dash, color: col }, z: 2, tooltip: { show: false } };
+          // même nom pour la tendance et ses 4 bandes : un clic sur « Tendance » dans la légende les retire toutes
+          return { name: "Tendance", id: "trend" + k, type: "line", data: pts, showSymbol: false, silent: true, lineStyle: { width: k ? 1 : 1.4, type: dash, color: col }, z: 2, tooltip: { show: false } };
         };
-        ser.push(mk(0, "Tendance", "solid", css("--ink")), mk(1, "+1σ", "dashed", css("--muted")), mk(-1, "-1σ", "dashed", css("--muted")), mk(2, "+2σ", "dotted", css("--muted")), mk(-2, "-2σ", "dotted", css("--muted")));
+        ser.push(mk(0, "solid", css("--ink")), mk(1, "dashed", css("--muted")), mk(-1, "dashed", css("--muted")), mk(2, "dotted", css("--muted")), mk(-2, "dotted", css("--muted")));
       } else tt.textContent = "";
     } else tt.textContent = "";
     const hline = (y, name, col, dash = "dashed") => isNum(y) && ml.push({ yAxis: y, name, lineStyle: { color: col, type: dash, width: 1.4 }, label: { formatter: `${name} ${fmt(y)}`, position: "insideEndTop", color: col, fontSize: 11 } });
@@ -488,7 +511,7 @@ function renderPriceChart(d) {
         const t = Date.parse(e.date); let k = T.findIndex((x) => x >= t); if (k < 0) k = T.length - 1;
         return { value: [t, series[k]], e };
       });
-      ser.push({ name: "Résultats", type: "scatter", data: pts.map((x) => ({ value: x.value, itemStyle: { color: isNum(x.e.surprise) ? (x.e.surprise >= 0 ? css("--up") : css("--down")) : css("--muted") }, e: x.e })), symbolSize: 8, z: 4,
+      ser.push({ name: "Résultats", id: "earn", type: "scatter", data: pts.map((x) => ({ value: x.value, itemStyle: { color: isNum(x.e.surprise) ? (x.e.surprise >= 0 ? css("--up") : css("--down")) : css("--muted") }, e: x.e })), symbolSize: 8, z: 4,
         tooltip: { trigger: "item", formatter: (pp) => { const e = pp.data.e; return `Publication ${dfr(e.date)}<br>BPA ${fmt(e.reported)} vs attendu ${fmt(e.estimate)}<br>Surprise ${isNum(e.surprise) ? fmt(e.surprise, 1) + " %" : "–"}`; } } });
     }
     if (st.t.bench) {
@@ -500,15 +523,15 @@ function renderPriceChart(d) {
           const base = bh.close[k0], s0 = series[i0];
           const bd = []; for (let k = k0; k < bT.length; k++) bd.push([bT[k], (bh.close[k] / base) * s0]);
           const bperf = bh.close[bh.close.length - 1] / base - 1;
-          ser.push({ name: (BENCH.find((x) => x[0] === st.bench) || [0, st.bench])[1] + ` (${pct(bperf, 1, true)}, rebasé)`, type: "line", data: bd, showSymbol: false, sampling: "lttb", lineStyle: { width: 1.3, color: css("--c3") }, z: 2 });
+          ser.push({ name: (BENCH.find((x) => x[0] === st.bench) || [0, st.bench])[1] + ` (${pct(bperf, 1, true)}, rebasé)`, id: "bench", type: "line", data: bd, showSymbol: false, sampling: "lttb", lineStyle: { width: 1.3, color: css("--c3") }, z: 2 });
         }
       } catch {}
     }
     const o = baseOpt();
     c.setOption({
       ...o, grid: { left: 60, right: 20, top: 30, bottom: 50 },
-      legend: { ...o.legend, data: ser.filter((s) => !/σ|Tendance/.test(s.name) || s.name === "Tendance").map((s) => s.name) },
-      xAxis: { ...o.xAxis, type: "time" },
+      legend: { ...o.legend, data: [...new Set(ser.map((s) => s.name))] },
+      xAxis: { ...o.xAxis, type: "time", axisPointer: { label: { formatter: (a) => new Date(a.value).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" }) } } },
       yAxis: { ...o.yAxis, type: st.t.log ? "log" : "value", scale: true, logBase: 10, min: (v) => v.min * 0.92, max: (v) => v.max * 1.05, axisLabel: { ...o.yAxis.axisLabel, formatter: (v) => fmt(v, v >= 100 ? 0 : 2) } },
       dataZoom: [{ type: "inside" }, { type: "slider", height: 16, bottom: 6, borderColor: "transparent", textStyle: { color: css("--muted") } }],
       tooltip: { ...o.tooltip, valueFormatter: (v) => fmt(v) },
@@ -517,7 +540,19 @@ function renderPriceChart(d) {
   };
   document.querySelectorAll("#ranges button").forEach((b) => (b.onclick = () => { st.range = b.dataset.r; document.querySelectorAll("#ranges button").forEach((x) => x.classList.toggle("on", x === b)); draw(); }));
   document.querySelectorAll("#trend-win button").forEach((b) => (b.onclick = () => { st.win = b.dataset.w; document.querySelectorAll("#trend-win button").forEach((x) => x.classList.toggle("on", x === b)); draw(); }));
-  document.querySelectorAll("#toggles input").forEach((i) => (i.onchange = () => { st.t[i.dataset.t] = i.checked; i.parentElement.classList.toggle("on", i.checked); draw(); }));
+  const setToggle = (k, on) => {
+    st.t[k] = on;
+    const i = document.querySelector(`#toggles input[data-t="${k}"]`);
+    if (i) { i.checked = on; i.parentElement.classList.toggle("on", on); }
+    draw();
+  };
+  document.querySelectorAll("#toggles input").forEach((i) => (i.onchange = () => setToggle(i.dataset.t, i.checked)));
+  // Un clic dans la légende sur Tendance / Indice / Résultats équivaut au bouton correspondant (les deux restent synchronisés)
+  c.on("legendselectchanged", (e) => {
+    const s = (c.getOption().series || []).find((x) => x.name === e.name);
+    const k = s && (String(s.id).startsWith("trend") ? "reg" : s.id === "bench" ? "bench" : s.id === "earn" ? "earn" : null);
+    if (k && !e.selected[e.name]) setToggle(k, false);
+  });
   document.getElementById("bench-sel").onchange = (e) => { st.bench = e.target.value; if (st.t.bench) draw(); };
   draw();
 }
@@ -838,7 +873,7 @@ function renderMyNote(d) {
 
 // ================================================================= tableaux suivi / classement
 const COLS = [
-  ["name", "Action", (r) => `<b>${esc(r.symbol)}</b><br><small class="muted">${esc((r.name || "").slice(0, 28))}</small>`, (r) => r.symbol],
+  ["name", "Action", (r) => `<b title="${esc(fullName(r.symbol, r.name))}">${esc(shortName(r.symbol, r.name))}</b><br><small class="muted">${esc(r.symbol)}</small>`, (r) => shortName(r.symbol, r.name).toLowerCase()],
   ["price", "Cours", (r) => `${money(r.price, r.currency)}<br><small class="${cls(r.change)}">${pct(r.change, 2, true)}</small>`, (r) => r.change],
   ["score", "Score", (r) => { const s = totalScore(r.scores, r.symbol), [, c] = scoreLabel(s); return `<span class="badge ${c}">${isNum(s) ? Math.round(s) : "–"}</span>`; }, (r) => totalScore(r.scores, r.symbol)],
   ["quality", "Qualité", (r) => `<span class="heat" style="${heat(r.scores.quality, 1, 5)}">${fmt(r.scores.quality, 1)}</span>`, (r) => r.scores.quality],
@@ -877,14 +912,14 @@ async function pageTable(kind) {
     const errs = rows.filter((r) => r && r.error);
     document.getElementById("tbl").innerHTML = `<table class="tbl"><tr>${COLS.map(([k, l]) => `<th class="sort" data-k="${k}">${l}${k === sortKey ? (sortDir > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}${isWl ? "<th></th>" : ""}</tr>
       ${vis.map((r) => `<tr class="click" data-s="${esc(r.symbol)}">${COLS.map((c) => `<td>${c[2](r)}</td>`).join("")}${isWl ? `<td><button class="btn sm" data-rm="${esc(r.symbol)}">✕</button></td>` : ""}</tr>`).join("")}</table>
-      ${errs.length ? `<div class="note">Non trouvées : ${errs.map((e) => esc(e.symbol)).join(", ")}</div>` : ""}${!vis.length && !errs.length ? `<div class="empty">Aucune action.</div>` : ""}`;
+      ${errs.length ? `<div class="note">Non trouvées : ${errs.map((e) => esc(e.symbol)).join(", ")}</div>` : ""}${vis.some((r) => r.partial) ? `<div class="note">Données incomplètes pour ${vis.filter((r) => r.partial).map((r) => esc(shortName(r.symbol, r.name))).join(", ")} : Yahoo limite momentanément ce serveur, réessaie dans quelques minutes.</div>` : ""}${!vis.length && !errs.length ? `<div class="empty">Aucune action.</div>` : ""}`;
     document.querySelectorAll("#tbl th.sort").forEach((th) => (th.onclick = () => { if (sortKey === th.dataset.k) sortDir *= -1; else { sortKey = th.dataset.k; sortDir = ["discount", "risk", "pe"].includes(sortKey) ? 1 : -1; } renderT(); }));
     document.querySelectorAll("#tbl tr.click").forEach((tr) => (tr.onclick = (e) => { if (e.target.dataset.rm) { setWatchlist(watchlist().filter((x) => x !== e.target.dataset.rm)); rows = rows.filter((r) => r.symbol !== e.target.dataset.rm); renderT(); return; } location.hash = "#/action/" + encodeURIComponent(tr.dataset.s); }));
   };
   const load = async (syms) => {
     rows = []; const prog = document.getElementById("prog"); prog.hidden = false; let done = 0;
     await pool(syms, 4, async (s) => {
-      let r; try { r = await api("/api/summary/" + encodeURIComponent(s)); } catch (e) { r = { error: e.message, symbol: s }; }
+      let r; try { r = await api("/api/summary/" + encodeURIComponent(s)); rememberName(s, r.name); } catch (e) { r = { error: e.message, symbol: s }; }
       rows.push(r); done++; prog.firstElementChild.style.width = (done / syms.length) * 100 + "%"; renderT();
     });
     prog.hidden = true;
@@ -944,7 +979,7 @@ async function pagePortfolio() {
     setPortfolio(p); alert(n + " lignes importées"); pagePortfolio();
   };
   if (!P.length) return;
-  const sums = await pool(P.map((x) => x.symbol), 4, (s) => api("/api/summary/" + encodeURIComponent(s)));
+  const sums = await pool(P.map((x) => x.symbol), 4, async (s) => { const r = await api("/api/summary/" + encodeURIComponent(s)); rememberName(s, r.name); return r; });
   const curs = [...new Set(sums.filter((s) => s && !s.error).map((s) => s.currency))];
   const fx = {}; await Promise.all(curs.map(async (c) => { try { fx[c] = (await api("/api/fx/" + encodeURIComponent(c))).rate; } catch { fx[c] = null; } }));
   const lines = P.map((l, i) => {
@@ -974,7 +1009,7 @@ async function pagePortfolio() {
       <div class="card"><h3>Par pays</h3><div class="chart small" id="pie-c"></div></div>
     </div>
     <div class="card mt"><div class="table-wrap"><table class="tbl" id="pf-tbl"><tr><th>Ligne</th><th>Qté</th><th>PRU</th><th>Cours</th><th>Valeur (€)</th><th>Poids</th><th>+/- value</th><th>Score</th><th>Risque</th><th>Croiss.</th><th>Solde</th><th>Potentiel</th><th>Esp. 5 ans</th><th></th></tr>
-      ${lines.map((l, i) => { const s = l.s, sc = totalScore(s.scores || {}, l.symbol), [, c] = scoreLabel(sc); return `<tr class="click" data-s="${esc(l.symbol)}"><td><b>${esc(l.symbol)}</b><br><small class="muted">${esc((s.name || s.error || "").slice(0, 26))}</small></td><td>${fmt(l.qty, l.qty % 1 ? 3 : 0)}</td><td>${fmt(l.pru)}</td><td>${money(s.price, s.currency)}</td><td>${money(l.value, "EUR", 0)}</td><td>${pct(total ? l.value / total : null, 1)}</td><td class="${cls(l.pnl)}">${money(l.pnl, "EUR", 0)}</td><td><span class="badge ${c}">${isNum(sc) ? Math.round(sc) : "–"}</span></td><td><span class="heat" style="${heat(s.risk, 0.15, 0.6, true)}">${pct(s.risk, 0)}</span></td><td>${pct(s.growth, 1, true)}</td><td><span class="heat" style="${heat(s.discount, -0.4, 0.4, true)}">${isNum(s.discount) ? (s.discount < 0 ? "−" : "+") + pct(Math.abs(s.discount), 0) : "–"}</span></td><td class="${cls(s.upside)}">${pct(s.upside, 0, true)}</td><td class="${cls(s.return5y)}">${pct(s.return5y, 1, true)}</td><td><button class="btn sm" data-rm="${i}">✕</button></td></tr>`; }).join("")}</table></div>
+      ${lines.map((l, i) => { const s = l.s, sc = totalScore(s.scores || {}, l.symbol), [, c] = scoreLabel(sc); return `<tr class="click" data-s="${esc(l.symbol)}"><td><b title="${esc(fullName(l.symbol, s.name))}">${esc(shortName(l.symbol, s.name))}</b><br><small class="muted">${esc(l.symbol)}${s.error ? " · " + esc(s.error.slice(0, 40)) : ""}</small></td><td>${fmt(l.qty, l.qty % 1 ? 3 : 0)}</td><td>${fmt(l.pru)}</td><td>${money(s.price, s.currency)}</td><td>${money(l.value, "EUR", 0)}</td><td>${pct(total ? l.value / total : null, 1)}</td><td class="${cls(l.pnl)}">${money(l.pnl, "EUR", 0)}</td><td><span class="badge ${c}">${isNum(sc) ? Math.round(sc) : "–"}</span></td><td><span class="heat" style="${heat(s.risk, 0.15, 0.6, true)}">${pct(s.risk, 0)}</span></td><td>${pct(s.growth, 1, true)}</td><td><span class="heat" style="${heat(s.discount, -0.4, 0.4, true)}">${isNum(s.discount) ? (s.discount < 0 ? "−" : "+") + pct(Math.abs(s.discount), 0) : "–"}</span></td><td class="${cls(s.upside)}">${pct(s.upside, 0, true)}</td><td class="${cls(s.return5y)}">${pct(s.return5y, 1, true)}</td><td><button class="btn sm" data-rm="${i}">✕</button></td></tr>`; }).join("")}</table></div>
       <div class="note">Les montants sont convertis en euros au taux du jour. Clique sur une ligne pour l'analyse détaillée.</div></div>`;
   document.querySelectorAll("#pf-tbl tr.click").forEach((tr) => (tr.onclick = (e) => { if (e.target.dataset.rm != null) { const p = portfolio(); p.splice(+e.target.dataset.rm, 1); setPortfolio(p); pagePortfolio(); return; } location.hash = "#/action/" + encodeURIComponent(tr.dataset.s); }));
   const pie = (id, groups) => {
@@ -983,7 +1018,7 @@ async function pagePortfolio() {
       series: [{ type: "pie", radius: ["40%", "72%"], label: { color: css("--muted"), fontSize: 11 }, data: Object.entries(groups).map(([name, value]) => ({ name, value })) }] });
   };
   const grp = (fn) => { const g = {}; lines.forEach((l) => { if (l.value) { const k = fn(l) || "Autre"; g[k] = (g[k] || 0) + l.value; } }); return g; };
-  pie("pie-l", grp((l) => l.symbol)); pie("pie-s", grp((l) => l.s.sector)); pie("pie-c", grp((l) => l.s.country));
+  pie("pie-l", grp((l) => shortName(l.symbol, l.s.name))); pie("pie-s", grp((l) => l.s.sector)); pie("pie-c", grp((l) => l.s.country));
 }
 
 // ================================================================= calendrier
@@ -1001,7 +1036,7 @@ async function pageCalendar() {
   });
   ev.sort((a, b) => a.date.localeCompare(b.date));
   const fut = ev.filter((e) => e.date >= today), past = ev.filter((e) => e.date < today).reverse().slice(0, 10);
-  const tbl = (arr) => `<table class="tbl"><tr><th>Date</th><th class="l">Action</th><th class="l">Événement</th></tr>${arr.map((e) => `<tr class="click" onclick="location.hash='#/action/${encodeURIComponent(e.s.symbol)}'"><td>${dfr(e.date)}</td><td class="l"><b>${esc(e.s.symbol)}</b> ${esc(e.s.name)}</td><td class="l">${esc(e.type)}</td></tr>`).join("")}</table>`;
+  const tbl = (arr) => `<table class="tbl"><tr><th>Date</th><th class="l">Action</th><th class="l">Événement</th></tr>${arr.map((e) => `<tr class="click" onclick="location.hash='#/action/${encodeURIComponent(e.s.symbol)}'"><td>${dfr(e.date)}</td><td class="l"><b title="${esc(fullName(e.s.symbol, e.s.name))}">${esc(shortName(e.s.symbol, e.s.name))}</b> <small class="muted">${esc(e.s.symbol)}</small></td><td class="l">${esc(e.type)}</td></tr>`).join("")}</table>`;
   document.getElementById("cal").innerHTML = `<h3>À venir</h3>${fut.length ? tbl(fut) : `<div class="empty">Rien de prévu.</div>`}${past.length ? `<h3 class="mt">Récents</h3>${tbl(past)}` : ""}`;
 }
 
