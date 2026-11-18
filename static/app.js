@@ -176,6 +176,7 @@ async function route() {
     else if (page === "classement") { setNav("classement"); await pageTable("classement"); }
     else if (page === "portefeuille") { setNav("portefeuille"); await pagePortfolio(); }
     else if (page === "calendrier") { setNav("calendrier"); await pageCalendar(); }
+    else if (page === "reglages") { setNav("reglages"); await pageSettings(); }
     else { setNav("home"); await pageHome(); }
   } catch (e) {
     app.innerHTML = `<div class="err"><b>Erreur :</b> ${esc(e.message)}<div class="note">Vérifie que le serveur tourne (fenêtre « lancer.bat ») et ta connexion internet.</div></div>`;
@@ -329,9 +330,16 @@ async function pageStock(sym, force = false) {
     <div class="card" id="holders-card"></div>
   </div>
 
+  <div class="section-title"><span class="ico navy">⌁</span>Analyse technique <small>graphique TradingView interactif et signaux calculés sur les cours quotidiens</small></div>
+  <div class="grid g-tech">
+    <div class="card"><div class="tv-bar" id="tv-bar"></div><div class="tv-box" id="tv-box"></div></div>
+    <div class="card" id="tech-card"></div>
+  </div>
+
   ${isEq ? `
   <div class="section-title"><span class="ico green">✦</span>Analystes <small>recommandations et prix cibles</small></div>
   <div class="card" id="analysts-card"></div>
+  <div id="fmp-sec"></div>
 
   <div class="section-title"><span class="ico navy">▤</span>Activité, résultats &amp; estimations</div>
   <div class="grid g2">
@@ -376,7 +384,7 @@ async function pageStock(sym, force = false) {
   <div class="grid g2">
     <div class="card" id="mynote-card"></div>
     <div class="card"><h3>L'entreprise</h3><div class="sub">${esc(p.sector || "")} · ${esc(p.industry || "")} ${p.website ? `· <a href="${esc(p.website)}" target="_blank" rel="noopener">${esc(domain)}</a>` : ""}</div><div class="desc-txt">${esc(p.summary || "Pas de description disponible.")}</div>
-      <div class="note">La répartition du chiffre d'affaires par région et par division n'est pas publiée par les sources gratuites utilisées.</div></div>
+      <div class="note">${isUsSymbol(S) ? "La répartition du chiffre d'affaires par division et par région s'affiche dans « Données complémentaires » si l'action fait partie de l'offre gratuite de Financial Modeling Prep (clé à saisir dans Réglages)." : "La répartition du chiffre d'affaires par région et par division n'est pas fournie gratuitement pour les actions hors États-Unis."}</div></div>
   </div>
 
   <div class="section-title"><span class="ico navy">✉</span>Actualités</div>
@@ -399,8 +407,11 @@ async function pageStock(sym, force = false) {
   renderScoreCard(d);
   renderOutlookCard(d);
   renderHolders(d);
+  renderTradingView(d);
+  renderTechCard(d);
   if (isEq) {
     renderAnalysts(d);
+    renderFmp(d);
     renderFinancialCharts(d);
     renderEstimates(d);
     renderQuality(d);
@@ -991,6 +1002,308 @@ async function pageCalendar() {
   const fut = ev.filter((e) => e.date >= today), past = ev.filter((e) => e.date < today).reverse().slice(0, 10);
   const tbl = (arr) => `<table class="tbl"><tr><th>Date</th><th class="l">Action</th><th class="l">Événement</th></tr>${arr.map((e) => `<tr class="click" onclick="location.hash='#/action/${encodeURIComponent(e.s.symbol)}'"><td>${dfr(e.date)}</td><td class="l"><b>${esc(e.s.symbol)}</b> ${esc(e.s.name)}</td><td class="l">${esc(e.type)}</td></tr>`).join("")}</table>`;
   document.getElementById("cal").innerHTML = `<h3>À venir</h3>${fut.length ? tbl(fut) : `<div class="empty">Rien de prévu.</div>`}${past.length ? `<h3 class="mt">Récents</h3>${tbl(past)}` : ""}`;
+}
+
+// ================================================================= analyse technique (TradingView + signaux calculés)
+const TV_STUDIES = [
+  ["ma50", "MM 50 j", { id: "MASimple@tv-basicstudies", inputs: { length: 50 } }],
+  ["ma200", "MM 200 j", { id: "MASimple@tv-basicstudies", inputs: { length: 200 } }],
+  ["bb", "Bollinger", "BB@tv-basicstudies"],
+  ["rsi", "RSI", "RSI@tv-basicstudies"],
+  ["macd", "MACD", "MACD@tv-basicstudies"],
+  ["stoch", "Stochastique", "Stochastic@tv-basicstudies"],
+  ["ichimoku", "Ichimoku", "IchimokuCloud@tv-basicstudies"],
+];
+const tvPrefs = () => ({ enabled: true, studies: ["ma50", "ma200", "rsi", "macd"], ...store.get("tv", {}) });
+const setTvPrefs = (p) => store.set("tv", { ...tvPrefs(), ...p });
+const isDark = () => (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+
+function mountTradingView(box, tvSym) {
+  box.innerHTML = "";
+  const w = document.createElement("div");
+  w.className = "tradingview-widget-container";
+  w.style.cssText = "height:100%;width:100%";
+  const inner = document.createElement("div");
+  inner.className = "tradingview-widget-container__widget";
+  inner.style.cssText = "height:100%;width:100%";
+  w.appendChild(inner);
+  const sel = tvPrefs().studies;
+  const sc = document.createElement("script");
+  sc.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+  sc.async = true;
+  sc.textContent = JSON.stringify({
+    autosize: true, symbol: tvSym, interval: "D", timezone: "Europe/Paris", theme: isDark() ? "dark" : "light",
+    style: "1", locale: "fr", withdateranges: true, allow_symbol_change: true, hide_side_toolbar: false,
+    save_image: true, calendar: false, details: false,
+    studies: TV_STUDIES.filter(([k]) => sel.includes(k)).map(([, , s]) => s),
+    support_host: "https://www.tradingview.com",
+  });
+  sc.onerror = () => { box.innerHTML = `<div class="empty">Impossible de charger TradingView : vérifie ta connexion internet ou un éventuel bloqueur de publicités.</div>`; };
+  w.appendChild(sc);
+  box.appendChild(w);
+}
+
+function renderTradingView(d) {
+  const tv = d.profile.tradingview, box = document.getElementById("tv-box"), bar = document.getElementById("tv-bar");
+  if (!box) return;
+  const link = tv ? `<a class="btn sm" href="${esc(tv.url)}" target="_blank" rel="noopener">Ouvrir sur TradingView ↗</a>` : "";
+  if (!tv || !tv.widget) {
+    bar.innerHTML = link;
+    box.classList.add("off");
+    box.innerHTML = `<div class="empty">${tv ? `Les cours de cette place (${esc(tv.symbol.split(":")[0])}) ne sont pas fournis dans le graphique gratuit de TradingView. Le bouton ci-dessus ouvre le graphique complet sur leur site.` : "Pas d'équivalent TradingView connu pour ce symbole."}<br>Les signaux techniques calculés à droite restent disponibles.</div>`;
+    return;
+  }
+  const P = tvPrefs();
+  bar.innerHTML = `<div class="toggles" style="margin:0">${TV_STUDIES.map(([k, l]) => `<label class="${P.studies.includes(k) ? "on" : ""}"><input type="checkbox" data-k="${k}" ${P.studies.includes(k) ? "checked" : ""}>${l}</label>`).join("")}</div>${link}`;
+  bar.querySelectorAll("input[data-k]").forEach((inp) => (inp.onchange = () => {
+    const cur = new Set(tvPrefs().studies);
+    inp.checked ? cur.add(inp.dataset.k) : cur.delete(inp.dataset.k);
+    inp.parentElement.classList.toggle("on", inp.checked);
+    setTvPrefs({ studies: [...cur] });
+    if (tvPrefs().enabled) mountTradingView(box, tv.symbol);
+  }));
+  if (!P.enabled) {
+    box.classList.add("off");
+    box.innerHTML = `<div class="empty">Graphique TradingView masqué (Réglages).<br><button class="btn mt" id="tv-show">Afficher pour cette fois</button></div>`;
+    document.getElementById("tv-show").onclick = () => { box.classList.remove("off"); mountTradingView(box, tv.symbol); };
+    return;
+  }
+  box.innerHTML = `<div class="loader"><div class="spinner"></div>Chargement du graphique TradingView…</div>`;
+  // chargement seulement quand la zone approche de l'écran (le widget est lourd)
+  const io = new IntersectionObserver((ents) => {
+    if (ents.some((e) => e.isIntersecting)) { io.disconnect(); mountTradingView(box, tv.symbol); }
+  }, { rootMargin: "400px" });
+  io.observe(box);
+}
+
+// -- indicateurs calculés sur les clôtures quotidiennes
+const smaAt = (a, n, end = a.length) => { if (end < n) return null; let s = 0; for (let i = end - n; i < end; i++) s += a[i]; return s / n; };
+function emaArr(a, n) { const k = 2 / (n + 1), out = new Array(a.length); let e = a[0]; for (let i = 0; i < a.length; i++) { e = i ? a[i] * k + e * (1 - k) : a[0]; out[i] = e; } return out; }
+function rsiOf(a, n = 14) {
+  if (a.length <= n + 1) return null;
+  let g = 0, l = 0;
+  for (let i = 1; i <= n; i++) { const dd = a[i] - a[i - 1]; g += Math.max(dd, 0); l += Math.max(-dd, 0); }
+  g /= n; l /= n;
+  for (let i = n + 1; i < a.length; i++) { const dd = a[i] - a[i - 1]; g = (g * (n - 1) + Math.max(dd, 0)) / n; l = (l * (n - 1) + Math.max(-dd, 0)) / n; }
+  return l === 0 ? 100 : 100 - 100 / (1 + g / l);
+}
+function technicalSignals(H) {
+  const n = H.close.length;
+  if (n < 60) return null;
+  const c = H.close.slice(-800), dates = H.dates.slice(-800), last = c[c.length - 1], L = c.length;
+  const ma = [];
+  for (const k of [20, 50, 100, 200]) {
+    const v = smaAt(c, k);
+    if (isNum(v)) ma.push({ label: `Moyenne mobile ${k} j`, value: v, vote: last > v ? 1 : -1, txt: last > v ? `cours au-dessus (${pct(last / v - 1, 1, true)})` : `cours en dessous (${pct(last / v - 1, 1, true)})` });
+  }
+  let cross = null;
+  if (L >= 201) {
+    const s50 = smaAt(c, 50), s200 = smaAt(c, 200), golden = s50 > s200;
+    let when = null;
+    for (let e = L - 1; e >= 201; e--) {
+      const a = smaAt(c, 50, e) > smaAt(c, 200, e);
+      if (a !== golden) { when = dates[e]; break; }
+    }
+    cross = { golden, when };
+    ma.push({ label: "MM 50 j vs MM 200 j", value: null, vote: golden ? 1 : -1, txt: (golden ? "croisement doré (tendance haussière)" : "croisement de la mort (tendance baissière)") + (when ? ` depuis le ${dfr(when)}` : "") });
+  }
+  const osc = [];
+  const r = rsiOf(c.slice(-300));
+  if (isNum(r)) osc.push({ label: "RSI 14 j", value: r, vote: r < 30 ? 1 : r > 70 ? -1 : 0, txt: `${fmt(r, 1)} · ${r < 30 ? "survente" : r > 70 ? "surachat" : "zone neutre (30-70)"}` });
+  const e12 = emaArr(c, 12), e26 = emaArr(c, 26), macd = c.map((_, i) => e12[i] - e26[i]), sig = emaArr(macd, 9);
+  const m = macd[L - 1], s = sig[L - 1];
+  osc.push({ label: "MACD (12, 26, 9)", value: m, vote: m > s ? 1 : -1, txt: `${m > s ? "au-dessus" : "en dessous"} de sa ligne de signal (histogramme ${fmt(m - s, 2)})` });
+  const roc = c[L - 11] ? last / c[L - 11] - 1 : null;
+  if (isNum(roc)) osc.push({ label: "Momentum 10 j", value: roc, vote: roc > 0 ? 1 : roc < 0 ? -1 : 0, txt: pct(roc, 1, true) });
+  const m20 = smaAt(c, 20);
+  if (isNum(m20)) {
+    let v = 0; for (let i = L - 20; i < L; i++) v += (c[i] - m20) ** 2;
+    const sd = Math.sqrt(v / 20), pb = sd ? (last - (m20 - 2 * sd)) / (4 * sd) : 0.5;
+    osc.push({ label: "Bandes de Bollinger (20, 2)", value: pb, vote: pb < 0 ? 1 : pb > 1 ? -1 : 0, txt: pb < 0 ? "sous la bande basse (excès de baisse)" : pb > 1 ? "au-dessus de la bande haute (excès de hausse)" : `dans les bandes (position ${pct(pb, 0)})` });
+  }
+  const all = [...ma, ...osc], score = all.reduce((t, x) => t + x.vote, 0) / all.length;
+  const verdict = score >= 0.5 ? ["Achat fort", "up"] : score >= 0.1 ? ["Achat", "up"] : score <= -0.5 ? ["Vente forte", "down"] : score <= -0.1 ? ["Vente", "down"] : ["Neutre", "muted"];
+  const perf = (days) => { const t = Date.parse(dates[L - 1]) - days * 864e5; const i = dates.findIndex((x) => Date.parse(x) >= t); return i >= 0 && i < L - 1 ? last / c[i] - 1 : null; };
+  const hi52 = Math.max(...c.slice(-252)), lo52 = Math.min(...c.slice(-252));
+  return { ma, osc, score, verdict, cross, counts: [all.filter((x) => x.vote > 0).length, all.filter((x) => x.vote === 0).length, all.filter((x) => x.vote < 0).length],
+    perf: { m1: perf(30), m3: perf(91), m6: perf(182), y1: perf(365) }, fromHigh: last / hi52 - 1, fromLow: last / lo52 - 1 };
+}
+function renderTechCard(d) {
+  const el = document.getElementById("tech-card");
+  if (!el) return;
+  const T = technicalSignals(d.history);
+  if (!T) { el.innerHTML = `<h3>Signaux techniques</h3><div class="empty">Historique trop court pour calculer les indicateurs.</div>`; return; }
+  const row = (x) => `<div class="kv"><span>${esc(x.label)}<small style="display:block;font-size:11px">${x.txt}</small></span><b class="${x.vote > 0 ? "up" : x.vote < 0 ? "down" : "muted"}">${x.vote > 0 ? "Achat" : x.vote < 0 ? "Vente" : "Neutre"}</b></div>`;
+  const pos = ((T.score + 1) / 2) * 100;
+  el.innerHTML = `<h3>Signaux techniques</h3><div class="sub">Calculés sur les clôtures quotidiennes (Yahoo Finance)</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><div class="big ${T.verdict[1]}">${T.verdict[0]}</div><div class="muted" style="font-size:12px"><span class="up">${T.counts[0]} achat</span> · ${T.counts[1]} neutre · <span class="down">${T.counts[2]} vente</span></div></div>
+    <div class="range" style="margin-top:4px"><div class="track"></div><div class="mk mean" style="left:${pos}%"><i></i></div></div>
+    <div style="display:flex;justify-content:space-between;font-size:11px" class="muted"><span>Vente forte</span><span>Neutre</span><span>Achat fort</span></div>
+    <div class="section-sub">Tendance (moyennes mobiles)</div>${T.ma.map(row).join("")}
+    <div class="section-sub">Oscillateurs</div>${T.osc.map(row).join("")}
+    <div class="section-sub">Performance</div>
+    <div class="kv"><span>1 mois · 3 mois · 6 mois · 1 an</span><b><span class="${cls(T.perf.m1)}">${pct(T.perf.m1, 1, true)}</span> · <span class="${cls(T.perf.m3)}">${pct(T.perf.m3, 1, true)}</span> · <span class="${cls(T.perf.m6)}">${pct(T.perf.m6, 1, true)}</span> · <span class="${cls(T.perf.y1)}">${pct(T.perf.y1, 1, true)}</span></b></div>
+    <div class="kv"><span>Écart au plus haut / plus bas 52 sem.</span><b><span class="down">${pct(T.fromHigh, 1, true)}</span> / <span class="up">${pct(T.fromLow, 1, true)}</span></b></div>
+    <div class="note">Indication mécanique de tendance, pas une prévision ni un conseil.</div>`;
+}
+
+// ================================================================= Financial Modeling Prep (offre gratuite, complément)
+const isUsSymbol = (s) => !/[.^=]/.test(s);
+function fmpSectionHtml(inner) {
+  return `<div class="section-title"><span class="ico blue">◈</span>Données complémentaires <small>Financial Modeling Prep, offre gratuite</small></div>${inner}`;
+}
+async function renderFmp(d, force = false) {
+  const el = document.getElementById("fmp-sec");
+  if (!el) return;
+  const S = d.profile.symbol;
+  if (!isUsSymbol(S)) { el.innerHTML = ""; return; } // l'offre gratuite ne couvre aucune action hors États-Unis
+  el.innerHTML = fmpSectionHtml(`<div class="card"><div class="loader"><div class="spinner"></div>Interrogation de Financial Modeling Prep…</div></div>`);
+  let f;
+  try { f = await api("/api/fmp/" + encodeURIComponent(S) + (force ? "?refresh=1" : ""), { force }); }
+  catch (e) { el.innerHTML = fmpSectionHtml(`<div class="card note">FMP indisponible : ${esc(e.message)}</div>`); return; }
+  if (!document.body.contains(el)) return;
+  const msg = {
+    no_key: `Ajoute ta clé gratuite Financial Modeling Prep dans <a href="#/reglages">Réglages</a> pour voir ici la répartition du chiffre d'affaires par division et par région, les estimations sur plusieurs années, l'historique des recommandations et les scores de solidité financière (Altman, Piotroski). C'est gratuit, sans carte bancaire, et ça couvre environ 90 grandes actions américaines.`,
+    not_covered: `Cette action ne fait pas partie de la liste d'environ 90 grandes actions américaines couvertes par l'offre gratuite de Financial Modeling Prep. Les données Yahoo Finance de la fiche restent complètes.`,
+    invalid_key: `La clé Financial Modeling Prep enregistrée est refusée. Vérifie-la dans <a href="#/reglages">Réglages</a>.`,
+    limit: `Le quota gratuit du jour (250 requêtes) est atteint. Les données Financial Modeling Prep reviendront demain.`,
+    error: `Financial Modeling Prep n'a pas répondu (${esc(f.message || "erreur")}). Réessaie plus tard.`,
+  }[f.status];
+  if (msg) { el.innerHTML = fmpSectionHtml(`<div class="card note" style="margin-top:0">${msg}</div>`); return; }
+
+  const cur = d.profile.financialCurrency || d.profile.currency, px = d.profile.price;
+  const segP = f.segments?.product || [], segG = f.segments?.geo || [];
+  const yearNow = new Date().getFullYear();
+  const est = (f.estimates || []).filter((e) => +e.year >= yearNow);
+  let cagr = null;
+  if (est.length >= 2 && est[0].eps > 0 && est[est.length - 1].eps > 0) cagr = Math.pow(est[est.length - 1].eps / est[0].eps, 1 / (est.length - 1)) - 1;
+  const sc = f.scores || {}, rt = f.rating || {}, dcf = f.dcf || {}, tg = f.targets || {};
+  const altZone = !isNum(sc.altman) ? null : sc.altman > 2.99 ? ["Zone sûre", "green"] : sc.altman >= 1.81 ? ["Zone grise", "orange"] : ["Zone de détresse", "red"];
+  const pioZone = !isNum(sc.piotroski) ? null : sc.piotroski >= 7 ? ["Solide", "green"] : sc.piotroski >= 4 ? ["Moyen", "blue"] : ["Fragile", "red"];
+  const row = (l, v, tip = "") => `<div class="kv"><span ${tip ? `title="${esc(tip)}"` : ""}>${l}${tip ? " ⓘ" : ""}</span><b>${v}</b></div>`;
+  const ACT = { upgrade: "Relèvement", downgrade: "Abaissement", maintain: "Maintien", initialize: "Initiation", initiate: "Initiation", reiterate: "Réitération", init: "Initiation", up: "Relèvement", down: "Abaissement" };
+  el.innerHTML = fmpSectionHtml(`
+    <div class="grid g2">
+      <div class="card"><h3>Chiffre d'affaires par division</h3><div class="sub">Répartition annuelle publiée (${esc(cur || "")})</div><div class="chart" id="seg-prod"></div></div>
+      <div class="card"><h3>Chiffre d'affaires par région</h3><div class="sub">Répartition géographique annuelle publiée (${esc(cur || "")})</div><div class="chart" id="seg-geo"></div></div>
+    </div>
+    <div class="grid g3 mt">
+      <div class="card"><h3>Estimations sur plusieurs années</h3><div class="sub">Consensus annuel des analystes, au-delà des 2 ans de Yahoo</div>
+        ${est.length ? `<div class="table-wrap"><table class="tbl"><tr><th>Exercice</th><th>CA estimé</th><th>BPA estimé</th><th>Bas – haut</th><th>Nb</th></tr>
+          ${est.map((e) => `<tr><td>${esc(e.year)}</td><td>${big(e.revenue)}</td><td><b>${fmt(e.eps)}</b></td><td class="muted">${fmt(e.epsLow)} – ${fmt(e.epsHigh)}</td><td>${e.analystsEps ?? "–"}</td></tr>`).join("")}</table></div>
+          ${isNum(cagr) ? `<div class="note">Croissance annuelle moyenne du BPA attendue de ${esc(est[0].year)} à ${esc(est[est.length - 1].year)} : <b class="${cls(cagr)}">${pct(cagr, 1, true)}/an</b>. Les années lointaines reposent sur peu d'analystes.</div>` : ""}`
+          : `<div class="empty">Pas d'estimations pluriannuelles.</div>`}
+      </div>
+      <div class="card"><h3>Solidité financière</h3><div class="sub">Scores calculés par FMP sur les comptes publiés</div>
+        ${row("Altman Z-score", isNum(sc.altman) ? `${fmt(sc.altman, 2)} <span class="badge ${altZone[1]}">${altZone[0]}</span>` : "–", "Risque de défaillance à 2 ans. Au-dessus de 3 : sûr ; 1,8 à 3 : zone grise ; sous 1,8 : détresse. Peu pertinent pour les banques et assurances.")}
+        ${row("Piotroski F-score", isNum(sc.piotroski) ? `${fmt(sc.piotroski, 0)}/9 <span class="badge ${pioZone[1]}">${pioZone[0]}</span>` : "–", "9 critères de rentabilité, d'endettement et d'efficacité. 7 à 9 : solide ; 0 à 3 : fragile.")}
+        ${row("Note FMP", rt.rating ? `${esc(rt.rating)}${isNum(rt.score) ? ` (${fmt(rt.score, 0)}/5)` : ""}` : "–", "Note synthétique de FMP (DCF, ROE, ROA, dette, PE, valeur comptable).")}
+        ${row("Valeur DCF selon FMP", isNum(dcf.value) ? `${money(dcf.value, d.profile.currency)} <span class="${cls(px && dcf.value / px - 1)}">${px ? pct(dcf.value / px - 1, 0, true) : ""}</span>` : "–", "Modèle d'actualisation des flux de trésorerie de FMP, à comparer au DCF de la fiche.")}
+        ${row("Objectif des analystes (FMP)", isNum(tg.consensus) ? `${money(tg.consensus, d.profile.currency)} <span class="${cls(px && tg.consensus / px - 1)}">${px ? pct(tg.consensus / px - 1, 0, true) : ""}</span>` : "–")}
+        ${isNum(tg.low) ? row("Fourchette des objectifs", `${fmt(tg.low, 0)} – ${fmt(tg.high, 0)}${isNum(tg.median) ? ` (médiane ${fmt(tg.median, 0)})` : ""}`) : ""}
+      </div>
+      <div class="card"><h3>Dernières recommandations</h3><div class="sub">Relèvements et abaissements par banque</div>
+        ${(f.grades || []).length ? `<div class="table-wrap" style="max-height:330px;overflow:auto"><table class="tbl"><tr><th>Date</th><th class="l">Banque</th><th class="l">Action</th><th class="l">Note</th></tr>
+          ${f.grades.slice(0, 25).map((g) => `<tr><td>${dfr(g.date)}</td><td class="l">${esc(g.firm || "")}</td><td class="l ${g.action === "upgrade" ? "up" : g.action === "downgrade" ? "down" : ""}">${esc(ACT[(g.action || "").toLowerCase()] || g.action || "")}</td><td class="l">${esc(g.from && g.from !== g.to ? g.from + " → " : "")}${esc(g.to || "")}</td></tr>`).join("")}</table></div>`
+          : `<div class="empty">Pas d'historique de recommandations.</div>`}
+      </div>
+    </div>
+    <div class="note">Source : Financial Modeling Prep, offre gratuite. Requêtes utilisées aujourd'hui : ${f.usage?.calls ?? "–"} / ${f.usage?.limit ?? 250}. Données gardées en mémoire 1 à 7 jours pour économiser le quota.
+      ${f.warning ? `<span class="warn">${esc(f.warning)}</span>` : ""} <button class="btn sm" id="fmp-refresh" title="Consomme environ 8 requêtes">↻ Recharger depuis FMP</button></div>`);
+  document.getElementById("fmp-refresh").onclick = () => renderFmp(d, true);
+  renderSegments("seg-prod", segP, cur);
+  renderSegments("seg-geo", segG, cur);
+}
+function renderSegments(id, rows, cur) {
+  const el = document.getElementById(id);
+  if (!rows.length) { el.style.height = "auto"; el.innerHTML = `<div class="empty">Répartition non publiée pour cette entreprise.</div>`; return; }
+  const latest = rows[rows.length - 1].items;
+  const names = Object.keys(latest).sort((a, b) => latest[b] - latest[a]);
+  const keep = names.slice(0, 7), others = new Set(names.slice(7));
+  rows.forEach((r) => Object.keys(r.items).forEach((k) => { if (!keep.includes(k)) others.add(k); }));
+  const cats = rows.map((r) => r.year || String(r.date).slice(0, 4));
+  const series = keep.map((k) => ({ name: k.replace(/ Segment$/, ""), type: "bar", stack: "t", data: rows.map((r) => r.items[k] ?? null), emphasis: { focus: "series" } }));
+  if (others.size) series.push({ name: "Autres", type: "bar", stack: "t", data: rows.map((r) => [...others].reduce((t, k) => t + (r.items[k] || 0), 0) || null) });
+  const o = baseOpt(), c = chart(el);
+  c.setOption({ ...o, color: [...palette(), "#9aa9b4", "#b07d48"], grid: { left: 64, right: 12, top: 56, bottom: 28 },
+    legend: { ...o.legend, top: 0 },
+    tooltip: { ...o.tooltip, trigger: "axis", axisPointer: { type: "shadow" }, formatter: (ps) => { const tot = ps.reduce((t, p) => t + (p.value || 0), 0); return `<b>${esc(ps[0].axisValue)}</b> · total ${big(tot, cur)}<br>` + ps.filter((p) => p.value).map((p) => `${p.marker}${esc(p.seriesName)} : ${big(p.value, cur)} (${pct(p.value / tot, 0)})`).join("<br>"); } },
+    xAxis: { ...o.xAxis, type: "category", data: cats }, yAxis: { ...o.yAxis, type: "value", axisLabel: { ...o.yAxis.axisLabel, formatter: (v) => big(v) } }, series });
+}
+
+// ================================================================= réglages
+async function pageSettings() {
+  app.innerHTML = `<div class="big">Réglages</div><div class="muted">Sources de données complémentaires et affichage.</div>
+    <div class="grid g2 mt">
+      <div class="card" id="set-fmp"><div class="loader"><div class="spinner"></div>Chargement…</div></div>
+      <div class="card" id="set-tv"></div>
+    </div>`;
+  renderTvSettings();
+  await renderFmpSettings();
+}
+async function renderFmpSettings(flash = "") {
+  const el = document.getElementById("set-fmp");
+  let st;
+  try { st = (await api("/api/settings", { force: true })).fmp; } catch (e) { el.innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+  const u = st.usage || {};
+  el.innerHTML = `<h3><span class="ico blue">◈</span>Financial Modeling Prep (gratuit)</h3>
+    <div class="sub">Données fondamentales en plus de Yahoo Finance, offre gratuite uniquement</div>
+    <div class="kv"><span>État</span><b>${st.configured ? (st.invalid ? `<span class="down">Clé refusée par FMP</span>` : `<span class="up">Clé enregistrée</span> (${esc(st.keyHint || "")})`) : "Aucune clé"}</b></div>
+    <div class="kv"><span>Requêtes utilisées aujourd'hui</span><b>${u.calls ?? 0} / ${u.limit ?? 250}</b></div>
+    ${st.source === "env" ? `<div class="note">La clé vient de la variable d'environnement FMP_API_KEY.</div>` : `
+    <div class="form-row"><label style="flex:1">Ta clé API FMP<input class="inp" id="fmp-key" type="password" autocomplete="off" placeholder="Colle ta clé ici" style="width:100%"></label>
+      <button class="btn primary" id="fmp-save">Enregistrer et tester</button>${st.configured ? `<button class="btn" id="fmp-del">Supprimer</button>` : ""}</div>`}
+    <div class="note" id="fmp-msg">${flash}</div>
+    <h3 class="mt" style="font-size:14px">Obtenir ta clé gratuite (2 minutes)</h3>
+    <ol class="steps">
+      <li>Ouvre la <a href="${esc(st.registerUrl)}" target="_blank" rel="noopener">page d'inscription de Financial Modeling Prep</a> et crée un compte avec ton e-mail. Aucune carte bancaire n'est demandée. Si on te propose des offres, garde l'offre gratuite « Basic » et ignore les offres payantes.</li>
+      <li>Confirme ton e-mail si on te le demande, puis connecte-toi et ouvre ton tableau de bord (« Dashboard », en haut à droite).</li>
+      <li>Copie ta clé (« API Key »), colle-la dans le champ ci-dessus et clique sur « Enregistrer et tester ».</li>
+    </ol>
+    <div class="note">La clé reste sur ton PC, dans un fichier local hors OneDrive et hors GitHub. Le test consomme 1 requête.</div>
+    <h3 class="mt" style="font-size:14px">Ce que couvre l'offre gratuite</h3>
+    <ul class="steps">
+      <li>250 requêtes par jour et 5 ans d'historique. L'application en garde une marge et met les réponses en mémoire 1 à 7 jours : ouvrir une fiche coûte environ 8 requêtes la première fois, puis rien.</li>
+      <li>Seulement une liste fixe d'environ 90 grandes actions américaines (Apple, Microsoft, Amazon, Tesla…). Aucune action européenne : pour celles-ci, l'application continue avec Yahoo Finance, sans dépenser de requête.</li>
+      <li>Ce qu'elle ajoute sur ces actions : chiffre d'affaires par division et par région, estimations sur plusieurs années, historique des relèvements et abaissements, scores Altman et Piotroski, note et DCF de FMP.</li>
+    </ul>`;
+  const save = document.getElementById("fmp-save"), del = document.getElementById("fmp-del"), m = document.getElementById("fmp-msg");
+  const post = async (key) => {
+    const r = await fetch("/api/settings/fmp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.detail || r.statusText);
+    return j;
+  };
+  if (save) save.onclick = async () => {
+    const key = document.getElementById("fmp-key").value.trim();
+    if (!key) { m.innerHTML = `<span class="down">Colle d'abord ta clé.</span>`; return; }
+    save.disabled = true; m.textContent = "Test de la clé auprès de FMP…";
+    try { await post(key); [...memo.keys()].filter((k) => k.startsWith("/api/fmp/")).forEach((k) => memo.delete(k)); await renderFmpSettings(`<span class="up">Clé valide et enregistrée ✓</span> Ouvre une grande action américaine (ex : <a href="#/action/MSFT">MSFT</a>) pour voir les données.`); }
+    catch (e) { m.innerHTML = `<span class="down">${esc(e.message)}</span>`; save.disabled = false; }
+  };
+  if (del) del.onclick = async () => {
+    try { await post(""); [...memo.keys()].filter((k) => k.startsWith("/api/fmp/")).forEach((k) => memo.delete(k)); await renderFmpSettings("Clé supprimée."); } catch (e) { m.textContent = e.message; }
+  };
+}
+function renderTvSettings() {
+  const el = document.getElementById("set-tv"), P = tvPrefs();
+  el.innerHTML = `<h3><span class="ico navy">⌁</span>Graphique TradingView</h3><div class="sub">Widget gratuit intégré à chaque fiche action</div>
+    <label class="kv" style="cursor:pointer"><span>Afficher le graphique TradingView dans les fiches</span><input type="checkbox" id="tv-en" ${P.enabled ? "checked" : ""}></label>
+    <div class="note" style="margin-bottom:6px">Indicateurs affichés par défaut (modifiables aussi au-dessus du graphique) :</div>
+    <div class="toggles" id="tv-def">${TV_STUDIES.map(([k, l]) => `<label class="${P.studies.includes(k) ? "on" : ""}"><input type="checkbox" data-k="${k}" ${P.studies.includes(k) ? "checked" : ""}>${l}</label>`).join("")}</div>
+    <ul class="steps">
+      <li>Cours en différé fournis par TradingView. Les actions de Paris, Amsterdam, Bruxelles, Francfort (Xetra), Milan, Madrid, Zurich, Copenhague et des bourses américaines s'affichent.</li>
+      <li>La Bourse de Londres n'est pas fournie dans le widget gratuit : la fiche propose alors un lien vers le graphique complet sur TradingView.</li>
+      <li>Dans le graphique, le bouton « Indicateurs » permet d'en ajouter d'autres pour la séance en cours (ils ne sont pas mémorisés).</li>
+      <li>La carte « Signaux techniques » à côté du graphique est calculée par l'application et fonctionne pour toutes les actions.</li>
+    </ul>`;
+  document.getElementById("tv-en").onchange = (e) => setTvPrefs({ enabled: e.target.checked });
+  el.querySelectorAll("#tv-def input").forEach((inp) => (inp.onchange = () => {
+    const cur = new Set(tvPrefs().studies);
+    inp.checked ? cur.add(inp.dataset.k) : cur.delete(inp.dataset.k);
+    inp.parentElement.classList.toggle("on", inp.checked);
+    setTvPrefs({ studies: [...cur] });
+  }));
 }
 
 // les symboles de suivi.txt sont ajoutés une seule fois (un symbole retiré ensuite n'est pas réajouté)

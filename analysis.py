@@ -159,6 +159,61 @@ def cap_category(mcap_usd):
     return "Micro Cap"
 
 
+# ============================================================ TradingView
+# suffixe Yahoo -> prefixe de place TradingView
+TV_SUFFIX = {
+    "PA": "EURONEXT", "AS": "EURONEXT", "BR": "EURONEXT", "LS": "EURONEXT", "IR": "EURONEXT",
+    "DE": "XETR", "F": "FWB", "BE": "BER", "DU": "DUS", "MU": "MUN", "HM": "HAM", "SG": "SWB",
+    "MI": "MIL", "SW": "SIX", "MC": "BME", "VI": "VIE", "WA": "GPW", "AT": "ATHEX", "PR": "PSECZ",
+    "CO": "OMXCOP", "ST": "OMXSTO", "HE": "OMXHEX", "OL": "OSL", "IC": "OMXICE",
+    "L": "LSE", "IL": "LSIN",
+    "TO": "TSX", "V": "TSXV", "NE": "NEO", "CN": "CSE",
+    "HK": "HKEX", "T": "TSE", "AX": "ASX", "NZ": "NZX", "KS": "KRX", "KQ": "KRX", "SS": "SSE", "SZ": "SZSE",
+    "NS": "NSE", "BO": "BSE", "TW": "TWSE", "TWO": "TPEX", "SI": "SGX", "SA": "BMFBOVESPA", "MX": "BMV",
+    "JO": "JSE", "IS": "BIST", "TA": "TASE",
+}
+# code de place Yahoo (info["exchange"]) -> prefixe TradingView pour les actions sans suffixe
+TV_US = {"NMS": "NASDAQ", "NGM": "NASDAQ", "NCM": "NASDAQ", "NAS": "NASDAQ", "NYQ": "NYSE", "NYS": "NYSE",
+         "ASE": "AMEX", "PCX": "AMEX", "BTS": "CBOE", "PNK": "OTC", "OQB": "OTC", "OQX": "OTC", "OEM": "OTC"}
+# places que les widgets gratuits n'affichent pas (« disponible uniquement sur TradingView »)
+TV_NO_WIDGET = {"LSE", "LSIN"}
+TV_INDEX = {"^GSPC": "SP:SPX", "^NDX": "NASDAQ:NDX", "^IXIC": "NASDAQ:IXIC", "^DJI": "DJ:DJI",
+            "^FCHI": "EURONEXT:PX1", "^GDAXI": "XETR:DAX", "^STOXX50E": "TVC:SX5E", "^STOXX": "TVC:SXXP",
+            "^FTSE": "TVC:UKX", "^N225": "TVC:NI225", "^HSI": "TVC:HSI", "^VIX": "TVC:VIX"}
+
+
+def tv_symbol(symbol: str, exch: str | None = None) -> dict | None:
+    """Symbole TradingView equivalent au symbole Yahoo, et s'il peut s'afficher dans le widget gratuit."""
+    s = (symbol or "").upper()
+    if not s or "=" in s:
+        return None
+    if s.startswith("^"):
+        tv = TV_INDEX.get(s)
+        if not tv:
+            return None
+        prefix = tv.split(":")[0]
+    else:
+        base, _, suf = s.rpartition(".") if "." in s else (s, "", "")
+        if suf:
+            prefix = TV_SUFFIX.get(suf)
+            if not prefix:
+                return None
+        else:
+            prefix = TV_US.get((exch or "").upper())
+        if prefix in ("OMXCOP", "OMXSTO", "OMXHEX", "OMXICE"):
+            base = base.replace("-", "_")            # NOVO-B -> NOVO_B
+        elif prefix == "HKEX":
+            base = base.lstrip("0") or "0"           # 0700 -> 700
+        else:
+            base = base.replace("-", ".")            # BRK-B -> BRK.B, RCI-B -> RCI.B
+        if prefix == "LSE" and len(base) < 3 and "." not in base:
+            base += "."                              # BA -> BA.
+        tv = f"{prefix}:{base}" if prefix else base
+    page = tv.replace(":", "-")
+    return {"symbol": tv, "widget": prefix not in TV_NO_WIDGET,
+            "url": f"https://fr.tradingview.com/symbols/{page}/"}
+
+
 # ============================================================ price history
 def price_history(t: yf.Ticker):
     h = t.history(period="max", interval="1d", auto_adjust=False, actions=True)
@@ -719,6 +774,7 @@ def full_analysis(symbol: str, pool: ThreadPoolExecutor):
         "lastFiscalYearEnd": ts(info.get("lastFiscalYearEnd")),
         "nextFiscalYearEnd": ts(info.get("nextFiscalYearEnd")),
         "marketState": info.get("marketState"),
+        "tradingview": tv_symbol(symbol, info.get("exchange")),
         "updated": datetime.now(timezone.utc).isoformat(),
     }
 

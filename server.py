@@ -1,7 +1,8 @@
 """
 Analyse Actions - serveur local.
 
-Recupere les donnees publiques (Yahoo Finance via yfinance) pour une action
+Recupere les donnees publiques (Yahoo Finance via yfinance ; Financial Modeling Prep
+gratuit en option, voir fmp.py) pour une action
 et calcule les indicateurs : croissance du BPA anticipee, risque (volatilite
 implicite Black-Scholes ou historique), valorisation (PE NTM vs moyenne 5 ans),
 dividendes, score /100, perspectives, DCF, analystes, actionnariat, etc.
@@ -20,11 +21,12 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import yfinance as yf
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import analysis as an
+import fmp
 
 log = logging.getLogger("analyse")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -155,6 +157,34 @@ def universe(name: str):
 @app.get("/api/universes")
 def universes():
     return ok([{"id": k, "label": an.UNIVERSE_LABELS.get(k, k), "count": len(v)} for k, v in an.UNIVERSES.items()])
+
+
+# ---------------------------------------------------------------- Financial Modeling Prep (offre gratuite)
+@app.get("/api/fmp/{symbol}")
+def fmp_data(symbol: str, refresh: int = 0):
+    return ok(fmp.get(symbol, bool(refresh), POOL))
+
+
+@app.get("/api/settings")
+def settings():
+    return ok({"fmp": fmp.status()})
+
+
+@app.post("/api/settings/fmp")
+def settings_fmp(payload: dict = Body(...)):
+    key = str(payload.get("key") or "").strip()
+    if not key:
+        fmp.set_key(None)
+        return ok({"ok": True, "message": "Clé supprimée.", "fmp": fmp.status()})
+    if len(key) < 10 or len(key) > 100 or not key.isalnum():
+        raise HTTPException(400, "Cette clé ne ressemble pas à une clé FMP (lettres et chiffres uniquement).")
+    res = fmp.test_key(key)
+    if not res["ok"]:
+        if res.get("kind") == "limit":
+            raise HTTPException(429, "Quota du jour atteint : réessaie demain.")
+        raise HTTPException(400, res["message"] + " Vérifie que tu as copié la clé en entier.")
+    fmp.set_key(key)
+    return ok({"ok": True, "message": res["message"], "fmp": fmp.status()})
 
 
 @app.get("/api/health")
