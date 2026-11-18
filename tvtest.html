@@ -1,0 +1,8 @@
+<!doctype html><html><head><meta charset="utf-8"><title>tvtest</title>
+<style>body{font-family:sans-serif;margin:8px}.g{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.c{border:1px solid #ccc;height:260px;display:flex;flex-direction:column}.c b{font-size:12px;padding:2px 4px}.w{flex:1}</style></head><body>
+<div class="g" id="g"></div>
+<script>
+const SYMS=["NASDAQ:MSFT","EURONEXT:MC","EURONEXT:AI","XETR:MOH","GETTEX:MOH","TRADEGATE:MOH","XETR:RHM","MIL:RACE","LSE:BA.","OMXCOP:NOVO_B","SIX:NOVN","BME:SAN","EURONEXT:ASML","XETR:ASME","NYSE:NEE","FWB:MOH"];
+const g=document.getElementById("g");
+for(const s of SYMS){const c=document.createElement("div");c.className="c";c.innerHTML="<b>"+s+"</b>";const w=document.createElement("div");w.className="tradingview-widget-container w";const inner=document.createElement("div");inner.className="tradingview-widget-container__widget";inner.style.height="100%";w.appendChild(inner);const sc=document.createElement("script");sc.src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";sc.async=true;sc.textContent=JSON.stringify({autosize:true,symbol:s,interval:"D",timezone:"Europe/Paris",theme:"light",style:"1",locale:"fr",hide_top_toolbar:true,allow_symbol_change:false,studies:["RSI@tv-basicstudies"],support_host:"https://www.tradingview.com"});w.appendChild(sc);c.appendChild(w);g.appendChild(c);}
+</script></body></html>
