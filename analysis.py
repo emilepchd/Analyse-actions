@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
 from datetime import datetime, timezone
 
@@ -274,6 +276,38 @@ def company_name(symbol: str, info: dict | None = None, meta: dict | None = None
         _NAMES[symbol] = found.strip()
         return _NAMES[symbol]
     return symbol
+
+
+_reset_lock = threading.Lock()
+_last_reset = [0.0]
+
+
+def reset_yahoo_session(min_interval: float = 300) -> bool:
+    """Yahoo refuse le jeton de session (« Invalid Crumb ») : on repart d'une session neuve, comme apres
+    un redemarrage du serveur (c'est ce qui a debloque le site le 18/11). Au plus une fois toutes les 5 minutes."""
+    with _reset_lock:
+        if time.time() - _last_reset[0] < min_interval:
+            return False
+        _last_reset[0] = time.time()
+    try:
+        from yfinance import cache as ycache
+        from yfinance._http import new_session
+        from yfinance.data import YfData
+        d = YfData()
+        d._set_session(new_session())
+        with d._cookie_lock:
+            d._crumb = None
+            d._cookie = None
+        for strategy in ("curlCffi", "basic", "csrf"):
+            try:
+                ycache.get_cookie_cache().store(strategy, None)
+            except Exception:  # noqa: BLE001
+                pass
+        log.warning("session Yahoo reinitialisee (profil refuse)")
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("reinitialisation de la session Yahoo impossible : %s", e)
+        return False
 
 
 def info_complete(info: dict) -> bool:
@@ -727,8 +761,9 @@ def derived_ratios(annual: dict):
 def full_analysis(symbol: str, pool: ThreadPoolExecutor):
     t = yf.Ticker(symbol)
     info = safe(lambda: t.info, {}, "info") or {}
-    if not info_complete(info):  # Yahoo refuse parfois une premiere fois : on retente une fois
-        info = safe(lambda: yf.Ticker(symbol).info, {}, "info") or info
+    if not info_complete(info) and reset_yahoo_session():  # jeton refuse : session neuve puis nouvel essai
+        t = yf.Ticker(symbol)
+        info = safe(lambda: t.info, {}, "info") or info
     hist = safe(lambda: price_history(t), None, "history")
     meta = _history_meta(t) if hist and hist["close"] else {}
     partial = not info_complete(info)
