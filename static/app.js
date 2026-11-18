@@ -1008,12 +1008,12 @@ async function pageCalendar() {
 const TV_STUDIES = [
   ["ma50", "MM 50 j", { id: "MASimple@tv-basicstudies", inputs: { length: 50 } }],
   ["ma200", "MM 200 j", { id: "MASimple@tv-basicstudies", inputs: { length: 200 } }],
-  ["bb", "Bollinger", "BB@tv-basicstudies"],
-  ["rsi", "RSI", "RSI@tv-basicstudies"],
-  ["macd", "MACD", "MACD@tv-basicstudies"],
-  ["stoch", "Stochastique", "Stochastic@tv-basicstudies"],
-  ["ichimoku", "Ichimoku", "IchimokuCloud@tv-basicstudies"],
-];
+  ["bb", "Bollinger", { id: "BB@tv-basicstudies" }],
+  ["rsi", "RSI", { id: "RSI@tv-basicstudies" }],
+  ["macd", "MACD", { id: "MACD@tv-basicstudies" }],
+  ["stoch", "Stochastique", { id: "Stochastic@tv-basicstudies" }],
+  ["ichimoku", "Ichimoku", { id: "IchimokuCloud@tv-basicstudies" }],
+]; // toutes au format objet : le widget ignore les identifiants texte mélangés à des objets
 const tvPrefs = () => ({ enabled: true, studies: ["ma50", "ma200", "rsi", "macd"], ...store.get("tv", {}) });
 const setTvPrefs = (p) => store.set("tv", { ...tvPrefs(), ...p });
 const isDark = () => (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
