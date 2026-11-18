@@ -977,8 +977,12 @@ def full_analysis(symbol: str, pool: ThreadPoolExecutor):
         "recommendation": info.get("recommendationKey"), "recommendationMean": num(info.get("recommendationMean")),
         "price5y": price5, "return5y": ret5,
         "return5yTotal": (ret5 + (dividends["yield"] or 0)) if ret5 is not None else None,
-        "warning": ("Écart très important entre l'objectif des analystes et le cours : vérifie la devise ou la fraîcheur des objectifs."
-                    if (t_mean and price and not (0.6 < t_mean / price < 1.6)) else None),
+        "warning": " ".join(w for w in [
+            "Écart très important entre l'objectif des analystes et le cours : vérifie la devise ou la fraîcheur des objectifs."
+            if (t_mean and price and not (0.6 < t_mean / price < 1.6)) else "",
+            "Croissance attendue exceptionnelle (plus de 40 %/an) : probable rebond après une mauvaise année ou estimations à vérifier."
+            if (growth_fwd is not None and growth_fwd > 0.40) else "",
+        ] if w) or None,
         "price5yMethod": "BPA des 12 prochains mois x (1 + croissance attendue)^5 x min(PE actuel, PE moyen 5 ans)",
     }
 
@@ -994,7 +998,9 @@ def full_analysis(symbol: str, pool: ThreadPoolExecutor):
         "fcfAvg3": fcf_avg3 * fx_fin if fcf_avg3 else None,
         "shares": num(info.get("sharesOutstanding")) or (last_r.get("shares")),
         "netDebt": net_debt * fx_fin if net_debt is not None else None,
-        "growth": max(min(growth_fwd if growth_fwd is not None else 0.05, 0.25), -0.05),
+        # hypothese prudente : la croissance des free cash-flows est bornee a 15 %/an (les BPA de
+        # sociétés cycliques peuvent rebondir fortement d'une année sur l'autre)
+        "growth": max(min(growth_fwd if growth_fwd is not None else 0.05, 0.15), -0.02),
         "discount": 0.09, "terminal": 0.025,
     }
     dcf["value"] = dcf_value(dcf)
@@ -1124,7 +1130,7 @@ MARKET = {
     "indices": [
         ("^FCHI", "CAC 40", "FR"), ("^GSPC", "S&P 500", "US"), ("^NDX", "Nasdaq 100", "US"), ("^DJI", "Dow Jones", "US"),
         ("^STOXX50E", "Euro Stoxx 50", "EU"), ("^STOXX", "STOXX Europe 600", "EU"), ("^GDAXI", "DAX", "DE"),
-        ("^FTSE", "FTSE 100", "GB"), ("^N225", "Nikkei 225", "JP"), ("000300.SS", "CSI 300", "CN"),
+        ("^FTSE", "FTSE 100", "GB"), ("^N225", "Nikkei 225", "JP"), ("ASHR", "Chine CSI 300 (ETF)", "CN"),
         ("^HSI", "Hang Seng", "HK"), ("URTH", "MSCI World (ETF)", "WORLD"), ("EEM", "Marchés émergents (ETF)", "EM"),
         ("^VIX", "VIX (volatilité S&P 500)", "US"),
     ],

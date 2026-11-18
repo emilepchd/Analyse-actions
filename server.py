@@ -16,6 +16,7 @@ import threading
 import time
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import yfinance as yf
@@ -31,7 +32,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 BASE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", "8765"))
 
-app = FastAPI(title="Analyse Actions")
+@asynccontextmanager
+async def lifespan(_app):
+    url = f"http://127.0.0.1:{PORT}"
+    print(f"\n  Analyse Actions est prete : {url}\n  (fermer cette fenetre pour arreter)\n", flush=True)
+    if not os.environ.get("NO_BROWSER"):
+        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+    yield
+
+
+app = FastAPI(title="Analyse Actions", lifespan=lifespan)
 POOL = ThreadPoolExecutor(max_workers=12)
 
 # ---------------------------------------------------------------- cache
@@ -144,14 +154,6 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="
 @app.get("/")
 def index():
     return FileResponse(os.path.join(BASE, "static", "index.html"))
-
-
-@app.on_event("startup")
-def _opened():
-    url = f"http://127.0.0.1:{PORT}"
-    print(f"\n  Analyse Actions est prete : {url}\n  (fermer cette fenetre pour arreter)\n", flush=True)
-    if not os.environ.get("NO_BROWSER"):
-        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
 
 
 if __name__ == "__main__":
