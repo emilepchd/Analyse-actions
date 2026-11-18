@@ -319,7 +319,8 @@ if __name__ == "__main__":
 
     if not ONLINE and _already_running():
         print("\n  Analyse Actions est deja ouverte : ouverture du navigateur.", flush=True)
-        webbrowser.open(f"http://127.0.0.1:{PORT}")
+        if not os.environ.get("NO_BROWSER"):
+            webbrowser.open(f"http://127.0.0.1:{PORT}")
         raise SystemExit(0)
     print("\n  Demarrage d'Analyse Actions...", flush=True)
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning", proxy_headers=True, forwarded_allow_ips="*")
