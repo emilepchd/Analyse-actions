@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -262,7 +263,35 @@ def _segments(body) -> list:
         if items:
             out.append({"year": str(year) if year else None, "date": date, "items": items})
     out.sort(key=lambda r: str(r.get("date") or r.get("year") or ""))
-    return out[-6:]
+    out = out[-6:]
+    # les libelles changent d'une annee a l'autre ("Server Products And Cloud Services" puis
+    # "Server products and cloud services", "Linked In Corporation" puis "LinkedIn") : on les regroupe
+    labels = {}
+    for r in out:
+        for name in r["items"]:
+            labels[_seg_key(name)] = _seg_label(name)  # le libelle le plus recent l'emporte
+    for r in out:
+        merged = {}
+        for name, v in r["items"].items():
+            lab = labels[_seg_key(name)]
+            merged[lab] = merged.get(lab, 0) + v
+        r["items"] = merged
+    return out
+
+
+def _seg_key(name: str) -> str:
+    k = re.sub(r"[^a-z0-9]", "", name.lower())
+    for suf in ("segment", "corporation", "inc"):
+        if k.endswith(suf) and len(k) > len(suf):
+            k = k[: -len(suf)]
+    return k
+
+
+def _seg_label(name: str) -> str:
+    lab = re.sub(r"\s+segment$", "", name.strip(), flags=re.I)
+    if lab.isupper() and len(lab) > 4:
+        lab = lab.title()
+    return lab
 
 
 def _estimates(body) -> list:

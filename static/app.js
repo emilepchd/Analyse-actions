@@ -1214,18 +1214,25 @@ async function renderFmp(d, force = false) {
   renderSegments("seg-prod", segP, cur);
   renderSegments("seg-geo", segG, cur);
 }
+const SEG_FR = { "united states": "États-Unis", "us": "États-Unis", "u.s.": "États-Unis", "non us": "Hors États-Unis", "non-us": "Hors États-Unis",
+  "international": "International", "americas": "Amériques", "north america": "Amérique du Nord", "latin america": "Amérique latine",
+  "europe": "Europe", "emea": "Europe, Moyen-Orient, Afrique", "europe, middle east and africa": "Europe, Moyen-Orient, Afrique",
+  "greater china": "Grande Chine", "china": "Chine", "japan": "Japon", "taiwan": "Taïwan", "rest of asia pacific": "Reste de l'Asie-Pacifique",
+  "asia pacific": "Asie-Pacifique", "other countries": "Autres pays", "other": "Autres", "rest of world": "Reste du monde", "canada": "Canada" };
+const segLabel = (k) => SEG_FR[k.toLowerCase()] || k;
 function renderSegments(id, rows, cur) {
   const el = document.getElementById(id);
   if (!rows.length) { el.style.height = "auto"; el.innerHTML = `<div class="empty">Répartition non publiée pour cette entreprise.</div>`; return; }
-  const latest = rows[rows.length - 1].items;
-  const names = Object.keys(latest).sort((a, b) => latest[b] - latest[a]);
-  const keep = names.slice(0, 7), others = new Set(names.slice(7));
-  rows.forEach((r) => Object.keys(r.items).forEach((k) => { if (!keep.includes(k)) others.add(k); }));
+  // chaque année garde ses propres libellés (les divisions sont parfois renommées) ; les plus grosses ont leur couleur
+  const tot = {};
+  rows.forEach((r, i) => Object.entries(r.items).forEach(([k, v]) => (tot[k] = (tot[k] || 0) + v * (1 + i / rows.length))));
+  const names = Object.keys(tot).sort((a, b) => tot[b] - tot[a]);
+  const keep = names.slice(0, 9), others = new Set(names.slice(9));
   const cats = rows.map((r) => r.year || String(r.date).slice(0, 4));
-  const series = keep.map((k) => ({ name: k.replace(/ Segment$/, ""), type: "bar", stack: "t", data: rows.map((r) => r.items[k] ?? null), emphasis: { focus: "series" } }));
+  const series = keep.map((k) => ({ name: segLabel(k), type: "bar", stack: "t", data: rows.map((r) => r.items[k] ?? null), emphasis: { focus: "series" } }));
   if (others.size) series.push({ name: "Autres", type: "bar", stack: "t", data: rows.map((r) => [...others].reduce((t, k) => t + (r.items[k] || 0), 0) || null) });
   const o = baseOpt(), c = chart(el);
-  c.setOption({ ...o, color: [...palette(), "#9aa9b4", "#b07d48"], grid: { left: 64, right: 12, top: 56, bottom: 28 },
+  c.setOption({ ...o, color: [...palette(), "#b07d48", "#4f7cac", "#9c6b98", "#9aa9b4"], grid: { left: 64, right: 12, top: 56, bottom: 28 },
     legend: { ...o.legend, top: 0 },
     tooltip: { ...o.tooltip, trigger: "axis", axisPointer: { type: "shadow" }, formatter: (ps) => { const tot = ps.reduce((t, p) => t + (p.value || 0), 0); return `<b>${esc(ps[0].axisValue)}</b> · total ${big(tot, cur)}<br>` + ps.filter((p) => p.value).map((p) => `${p.marker}${esc(p.seriesName)} : ${big(p.value, cur)} (${pct(p.value / tot, 0)})`).join("<br>"); } },
     xAxis: { ...o.xAxis, type: "category", data: cats }, yAxis: { ...o.yAxis, type: "value", axisLabel: { ...o.yAxis.axisLabel, formatter: (v) => big(v) } }, series });
