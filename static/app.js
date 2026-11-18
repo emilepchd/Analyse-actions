@@ -997,6 +997,10 @@ async function pageCalendar() {
 (async function syncWatchFile() {
   try {
     const syms = await api("/api/suivi-fichier");
+    // corrections : symboles ajoutés par erreur lors d'une version précédente du fichier
+    const REMOVED = ["EL.PA", "EXA.PA", "DESN.SW"];
+    const fixed = store.get("fileFix1", false);
+    if (!fixed) { setWatchlist(watchlist().filter((s) => !REMOVED.includes(s) || syms.includes(s))); store.set("fileFix1", true); }
     const seen = new Set(store.get("fileSeen", []));
     const fresh = syms.filter((s) => !seen.has(s));
     if (fresh.length) {

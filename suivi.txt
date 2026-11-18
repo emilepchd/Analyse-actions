@@ -15,12 +15,12 @@ LLY        # Eli Lilly
 ASML.AS    # ASML
 BA.L       # BAE Systems
 NEE        # NextEra Energy
-EXA.PA     # Exail Technologies (EXPL)
+EXPL.PA    # EPC Groupe - Societe Explosifs et Produits Chimiques (EXPL)
 AI.PA      # Air Liquide
 ENX.PA     # Euronext
 GTT.PA     # GTT
 SU.PA      # Schneider Electric
-EL.PA      # EssilorLuxottica (ESF0, cotation allemande)
+ERF.PA     # Eurofins Scientific (ESF0)
 RACE.MI    # Ferrari
 AM.PA      # Dassault Aviation
 ALO.PA     # Alstom
@@ -29,4 +29,4 @@ AIR.PA     # Airbus
 STLAP.PA   # Stellantis
 BKNG       # Booking Holdings
 MSFT       # Microsoft
-DESN.SW    # Dottikon ES Holding (0QJU a Londres)
+NOVO-B.CO  # Novo Nordisk (0QJU)
