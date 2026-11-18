@@ -29,4 +29,4 @@ AIR.PA     # Airbus
 STLAP.PA   # Stellantis
 BKNG       # Booking Holdings
 MSFT       # Microsoft
-# 0QJU : a identifier (cotation Londres)
+DESN.SW    # Dottikon ES Holding (0QJU a Londres)
