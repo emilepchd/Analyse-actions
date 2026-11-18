@@ -1,0 +1,32 @@
+# Liste de suivi : un symbole Yahoo Finance par ligne (le texte apres # est ignore).
+# Les symboles ajoutes ici apparaissent automatiquement dans la page "Suivi" de l'application.
+MC.PA      # LVMH
+SGO.PA     # Saint-Gobain (GOB)
+RHM.DE     # Rheinmetall
+PARRO.PA   # Parrot
+OKLO       # Oklo
+SMR        # NuScale Power
+PLTR       # Palantir
+AMD        # AMD
+DSY.PA     # Dassault Systemes
+EXENS.PA   # Exosens
+SAF.PA     # Safran (SEJ1, cotation allemande)
+LLY        # Eli Lilly
+ASML.AS    # ASML
+BA.L       # BAE Systems
+NEE        # NextEra Energy
+EXA.PA     # Exail Technologies (EXPL)
+AI.PA      # Air Liquide
+ENX.PA     # Euronext
+GTT.PA     # GTT
+SU.PA      # Schneider Electric
+EL.PA      # EssilorLuxottica (ESF0, cotation allemande)
+RACE.MI    # Ferrari
+AM.PA      # Dassault Aviation
+ALO.PA     # Alstom
+MU         # Micron Technology
+AIR.PA     # Airbus
+STLAP.PA   # Stellantis
+BKNG       # Booking Holdings
+MSFT       # Microsoft
+# 0QJU : a identifier (cotation Londres)

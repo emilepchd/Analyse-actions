@@ -133,6 +133,20 @@ def fx(currency: str):
     return ok({"currency": currency, "rate": cached(f"fx:{currency}", 3600, lambda: an.fx_rate(currency, "EUR"))})
 
 
+@app.get("/api/suivi-fichier")
+def watch_file():
+    """Symboles du fichier suivi.txt (un par ligne, # pour les commentaires)."""
+    path = os.path.join(BASE, "suivi.txt")
+    out = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                tok = line.split("#", 1)[0].strip().split()
+                if tok:
+                    out.append(tok[0].upper())
+    return ok(out)
+
+
 @app.get("/api/universe/{name}")
 def universe(name: str):
     return ok(an.UNIVERSES.get(name, []))

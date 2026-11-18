@@ -993,4 +993,18 @@ async function pageCalendar() {
   document.getElementById("cal").innerHTML = `<h3>À venir</h3>${fut.length ? tbl(fut) : `<div class="empty">Rien de prévu.</div>`}${past.length ? `<h3 class="mt">Récents</h3>${tbl(past)}` : ""}`;
 }
 
+// les symboles de suivi.txt sont ajoutés une seule fois (un symbole retiré ensuite n'est pas réajouté)
+(async function syncWatchFile() {
+  try {
+    const syms = await api("/api/suivi-fichier");
+    const seen = new Set(store.get("fileSeen", []));
+    const fresh = syms.filter((s) => !seen.has(s));
+    if (fresh.length) {
+      setWatchlist([...watchlist(), ...fresh]);
+      store.set("fileSeen", [...seen, ...fresh]);
+      if (/^#\/?(suivi)?$/.test(location.hash) || !location.hash) route();
+    }
+  } catch {}
+})();
+
 route();

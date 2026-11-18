@@ -31,7 +31,7 @@ Sous macOS / Linux : `./lancer.sh`.
 
 Autres pages : **Accueil** (indices, matières premières, taux, devises), **Suivi** (liste de suivi triable), **Recherche & classement** (CAC 40, grandes valeurs européennes, géants US ou liste perso, filtre PEA, tri par solde/qualité/croissance/risque/dividende), **Portefeuille** (saisie ou import CSV `symbole;quantité;PRU`, répartition, risque, croissance et potentiel pondérés, dividendes attendus), **Calendrier** (publications et détachements à venir).
 
-Tes listes, notes et portefeuille sont enregistrés dans ton navigateur (localStorage).
+Tes listes, notes et portefeuille sont enregistrés dans ton navigateur (localStorage). Tu peux aussi lister des symboles dans **`suivi.txt`** (un par ligne) : ils sont ajoutés automatiquement à la page Suivi au lancement suivant.
 
 ## Symboles
 
